@@ -12,7 +12,7 @@ const distPath = join(__dirname, '..', 'dist')
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/'
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb://localhost:27017/'
 const databaseName = process.env.MONGODB_DB || 'smartagro'
 const supportedRegion = 'Акмолинская область'
 const openAiApiKey = process.env.OPENAI_API_KEY
@@ -299,7 +299,7 @@ async function start() {
   // Serve built frontend in production
   if (existsSync(distPath)) {
     app.use(express.static(distPath))
-    app.get('*', (req, res, next) => {
+    app.get('/*splat', (req, res, next) => {
       if (req.path.startsWith('/api')) return next()
       res.sendFile(join(distPath, 'index.html'))
     })
