@@ -1,0 +1,23 @@
+services:
+  # ── Backend API (Node.js + Express + MongoDB) ──────────────────────────────
+  - type: web
+    name: smartagro-api
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/index.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false          # вводится вручную в Render Dashboard
+      - key: MONGODB_DB
+        value: smartagro
+      - key: OPENAI_API_KEY
+        sync: false          # вводится вручную
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
