@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
 
 :root { font-family: 'DM Sans', sans-serif; color: #24332d; background: #f4f6f2; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
@@ -216,7 +216,8 @@ body { font-size: 15px; }
 	.muted { font-size: 12px; }
 }
 
-/* ── Layer Legend ─────────────────────────────────────────────────────── */
+
+/* ── Layer Legend ────────────────────────────────────────────────────── */
 .layer-legend { position: absolute; z-index: 4; bottom: 13px; left: 13px; padding: 8px 11px; border-radius: 6px; background: rgba(255,255,255,.93); box-shadow: 0 2px 6px rgba(0,0,0,.12); min-width: 190px; }
 .legend-title { display: block; color: #3a5e44; font-size: 9px; font-weight: 700; margin-bottom: 6px; }
 .legend-scale { height: 8px; border-radius: 4px; margin-bottom: 4px; }
@@ -226,171 +227,297 @@ body { font-size: 15px; }
 .legend-labels { display: flex; justify-content: space-between; color: #7a8d7d; font-size: 8px; }
 .legend-note { display: block; margin-top: 5px; color: #a0aca5; font-size: 7px; }
 .weather-refresh { border: 1px solid #e5d9c0; padding: 5px 9px; border-radius: 5px; background: #fff9ef; }
-.field-editor-map-stage { position: relative; height: 260px; overflow: hidden; border-radius: 7px; margin: 10px 0; }
 .real-map { width: 100%; height: 100%; min-height: 280px; }
 .map-loading { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 220px; color: #7a9a7e; font-size: 11px; background: #e8f0e2; }
+.field-editor-map-stage { position: relative; height: 280px; overflow: hidden; border-radius: 7px; }
 
 /* ══════════════════════════════════════════════════════════════════════
-   MOBILE & TABLET  — responsive breakpoints
+   RESPONSIVE — single source of truth, no conflicting duplicates
+   Breakpoints: 1100px  →  768px  →  480px
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ── Tablet 1024px ───────────────────────────────────────────────────── */
-@media (max-width: 1024px) {
-  .sidebar { width: 210px; flex: 0 0 210px; padding: 22px 12px 16px; }
-  .content-wrap { padding: 24px 24px 20px; }
+/* ── 1100px: tablet landscape ───────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .sidebar { width: 210px; flex-basis: 210px; }
+  .content-wrap { padding: 28px 24px; }
+  .topbar { padding: 0 24px; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .hero-grid { grid-template-columns: 1fr; }
-  .lower-grid, .decision-grid { grid-template-columns: 1fr; }
+  .hero-grid, .lower-grid, .decision-grid { grid-template-columns: 1fr; }
+  .insight-card { min-height: 0; }
   .economy-strip { grid-template-columns: 1fr 1fr; }
-  .economy-result { padding-left: 0; border-left: 0; border-top: 1px solid #436652; padding-top: 14px; }
-  .field-table-head, .field-table-row { grid-template-columns: minmax(160px, 1.5fr) .6fr .6fr 1fr 25px; gap: 10px; padding: 0 14px; }
+  .economy-result { border-left: 0; padding-left: 0; border-top: 1px solid #436652; padding-top: 14px; }
   .auth-shell { grid-template-columns: 1fr; }
   .auth-visual { display: none; }
   .auth-card { width: min(480px, calc(100% - 40px)); margin: 40px auto; }
 }
 
-/* ── Mobile 768px ────────────────────────────────────────────────────── */
+/* ── 900px: setup screen ─────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .setup-content { grid-template-columns: 1fr; padding: 35px 20px 60px; }
+  .setup-copy { max-width: none; }
+  .setup-map { order: -1; }
+  .setup-map-stage { height: 330px; }
+  .setup-form { grid-template-columns: 1fr; }
+  .setup-add, .setup-error { grid-column: auto; }
+}
+
+/* ── 800px: auth screen stacks ──────────────────────────────────────── */
+@media (max-width: 800px) {
+  .auth-shell { display: block; }
+  .auth-visual { min-height: 270px; padding: 25px 25px 20px; display: flex; }
+  .auth-visual-copy { margin: 28px 0 0; }
+  .auth-visual-copy h1 { font-size: 34px; letter-spacing: -1.5px; }
+  .auth-visual-copy > p:not(.eyebrow), .auth-proof, .auth-mini-map { display: none; }
+  .auth-card { width: min(520px, calc(100% - 28px)); margin: -22px auto 30px; padding: 28px 22px; position: relative; }
+  .auth-card-head { margin-bottom: 30px; }
+}
+
+/* ── 768px: MOBILE ───────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  /* Sidebar скрывается — низ экрана становится nav-bar */
-  .app-shell { flex-direction: column; padding-bottom: 64px; }
+
+  /* Body padding for bottom nav */
+  body { padding-bottom: 64px; }
+  .app-shell { flex-direction: column; min-height: 100vh; }
+
+  /* ── Bottom navigation bar ── */
   .sidebar {
-    position: fixed; z-index: 50; bottom: 0; left: 0; right: 0;
-    width: 100%; flex: none;
-    flex-direction: row; align-items: center; justify-content: space-around;
-    height: 64px; padding: 0 8px;
+    position: fixed; z-index: 50;
+    bottom: 0; left: 0; right: 0;
+    width: 100%; height: 64px;
+    flex: none; flex-direction: row;
+    align-items: center; padding: 0 6px;
     border-top: 1px solid #2e5040;
     overflow: hidden;
   }
-  /* Скрываем всё кроме кнопок полей и бренда */
   .sidebar .brand,
   .sidebar .farm-switcher,
   .sidebar .sidebar-section-header,
   .sidebar .sidebar-footer { display: none; }
   .sidebar-field-list {
-    display: flex; flex-direction: row; gap: 6px;
+    display: flex; flex-direction: row; gap: 5px;
     max-height: none; overflow-x: auto; overflow-y: hidden;
     padding: 0; width: 100%;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
   .sidebar-field-list::-webkit-scrollbar { display: none; }
   .sidebar-field-item {
-    flex: 0 0 auto; flex-direction: column; align-items: center;
-    padding: 6px 10px; border-radius: 8px; min-width: 68px;
-    gap: 2px; text-align: center;
+    flex: 0 0 auto; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 6px 10px; border-radius: 8px;
+    min-width: 64px; gap: 2px; text-align: center;
   }
-  .field-list-main b { font-size: 10px; white-space: nowrap; }
+  .field-list-main b { font-size: 10px; white-space: nowrap; max-width: 72px; }
   .field-list-main small { font-size: 8px; }
   .field-list-meta { display: none; }
 
-  /* Topbar */
-  .topbar { height: 56px; padding: 0 16px; }
-  .breadcrumb { font-size: 10px; }
+  /* ── Topbar ── */
+  .topbar { height: 52px; padding: 0 14px; }
+  .breadcrumb { font-size: 11px; gap: 6px; }
   .live-pill { display: none; }
-  .top-actions { gap: 12px; }
+  .top-actions { gap: 10px; }
+  /* Profile avatar doubles as profile button on mobile */
+  .profile { font-size: 0; gap: 0; }
+  .profile-avatar { width: 32px; height: 32px; font-size: 10px; }
+  /* Notification button — ensure 44px tap target */
+  .icon-button { width: 40px; height: 40px; display: grid; place-items: center; font-size: 20px; }
 
-  /* Content */
-  .content-wrap { padding: 16px 14px 14px; }
-  .page-heading { flex-direction: column; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
-  .page-heading h1 { font-size: 20px; }
+  /* ── Page heading ── */
+  .content-wrap { padding: 14px 12px 16px; }
+  .page-heading { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+  .page-heading h1 { font-size: 20px; letter-spacing: -0.5px; }
+  .muted { font-size: 11px; }
   .heading-actions { width: 100%; }
-  .heading-actions .outline-button { flex: 1; text-align: center; padding: 10px 8px; font-size: 10px; }
+  .heading-actions .outline-button { flex: 1; text-align: center; padding: 10px 8px; font-size: 11px; min-height: 42px; }
   .secondary-action { display: none; }
 
-  /* KPI */
+  /* ── KPI grid ── */
   .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
-  .kpi-card { padding: 13px 12px; gap: 10px; }
-  .kpi-icon { width: 32px; height: 32px; font-size: 15px; }
-  .kpi-card strong { font-size: 16px; }
-  .kpi-card small { font-size: 8px; }
+  .kpi-card { padding: 12px 10px; gap: 9px; }
+  .kpi-icon { width: 30px; height: 30px; font-size: 14px; border-radius: 8px; }
+  .kpi-card p { font-size: 10px; }
+  .kpi-card strong { font-size: 16px; letter-spacing: -0.4px; }
+  .kpi-card small { font-size: 9px; }
 
-  /* Map */
+  /* ── Map ── */
   .hero-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
-  .map-stage { min-height: 230px; }
-  .layer-switcher button { padding: 5px 6px; font-size: 8px; }
-  .layer-legend { min-width: 150px; padding: 6px 8px; }
+  .map-stage { min-height: 240px; }
+  .layer-switcher { top: 9px; right: 9px; }
+  .layer-switcher button { padding: 5px 7px; font-size: 8px; }
+  .map-actions .small-icon { width: 32px; height: 32px; }
+  .layer-legend { min-width: 155px; padding: 6px 9px; bottom: 9px; left: 9px; }
   .legend-title { font-size: 8px; }
   .legend-labels { font-size: 7px; }
+  .legend-note { font-size: 7px; }
 
-  /* Insight card */
-  .insight-card { padding: 18px 16px 16px; }
-  .insight-card h2 { font-size: 15px; }
-  .insight-copy { font-size: 10px; margin-bottom: 14px; }
+  /* ── Insight card ── */
+  .insight-card { padding: 16px 14px; }
+  .insight-card h2 { font-size: 15px; max-width: none; }
+  .insight-copy { font-size: 11px; margin: 10px 0 14px; }
+  .insight-facts { gap: 14px; margin-bottom: 14px; }
 
-  /* Fields table */
+  /* ── Field table — card layout ── */
   .field-table-head { display: none; }
+  .field-status { overflow-x: visible; }
   .field-table-row {
+    display: grid;
     grid-template-columns: 1fr auto;
     grid-template-rows: auto auto;
-    gap: 4px 10px; padding: 10px 14px; min-height: auto;
+    gap: 3px 10px;
+    padding: 11px 14px;
+    min-height: auto;
+    min-width: 0;
   }
-  .field-name { grid-column: 1; }
+  .field-name { grid-column: 1; grid-row: 1; font-size: 12px; }
+  .field-name small { font-size: 9px; }
   .field-table-row > span:nth-child(2),
   .field-table-row > strong,
-  .field-table-row > span.table-status { grid-column: 1; font-size: 9px; }
-  .row-arrow { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 18px; }
+  .field-table-row > .table-status {
+    grid-column: 1; font-size: 9px; display: inline;
+  }
+  .field-table-row > strong { display: inline; margin-right: 6px; }
+  .row-arrow { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 20px; padding: 4px 8px; }
 
-  /* Chart & Weather */
+  /* ── Chart ── */
   .lower-grid, .decision-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
   .chart-card, .weather-card, .risk-card, .task-card { min-height: auto; }
   .chart-summary strong { font-size: 22px; }
-  .line-chart { height: 120px; margin: 10px 14px 0 40px; }
-  .weather-list { grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 10px; }
-  .weather-day.today ~ .weather-day:nth-child(n+4) { display: none; }
+  .line-chart { height: 130px; margin: 10px 12px 0 38px; }
+  /* Make chart circles larger on touch */
+  .line-chart circle { r: 4; }
 
-  /* Economy */
-  .economy-strip {
-    grid-template-columns: 1fr;
-    gap: 16px; padding: 16px 14px;
-  }
-  .economy-controls { grid-template-columns: 1fr 1fr; }
+  /* ── Weather — 3 days shown ── */
+  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 10px 10px 14px; }
+  .weather-day:nth-child(n+4) { display: none; }
+  .weather-day.today ~ .weather-day { display: flex; }
+  .weather-day:nth-child(n+4) { display: none; }
+
+  /* ── Economy ── */
+  .economy-strip { grid-template-columns: 1fr; gap: 14px; padding: 14px 12px; }
+  .economy-controls { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .economy-price input,
+  .economy-price { font-size: 11px; }
+  .economy-price input { min-height: 40px; padding: 8px; }
   .economy-result { border-left: 0; border-top: 1px solid #436652; padding: 14px 0 0; }
   .economy-result b { font-size: 18px; }
 
-  /* Panels / modals */
-  .chat-panel { padding: 20px 16px; width: 100%; max-height: calc(100vh - 20px); border-radius: 14px 14px 0 0; }
-  .chat-overlay { padding: 0; align-items: flex-end; }
-  .registration-panel { width: 100%; }
-  .ai-messages { max-height: 240px; }
+  /* ── Inputs — ensure 44px touch targets ── */
+  .form-input { min-height: 46px; font-size: 14px; }
+  input[type="number"].form-input { min-height: 46px; }
 
-  /* Auth */
-  .auth-shell { grid-template-columns: 1fr; min-height: 100vh; }
+  /* ── Modals — slide up from bottom (sheet) ── */
+  .chat-overlay { padding: 0; align-items: flex-end; background: rgba(20,42,32,.55); }
+  .chat-panel {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+    padding: 22px 16px 28px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .registration-panel, .utility-panel { width: 100%; }
+  .close-chat { width: 40px; height: 40px; display: grid; place-items: center; font-size: 26px; top: 10px; right: 12px; }
+  .ai-chat-panel { max-height: 92vh; }
+  .ai-messages { max-height: min(220px, 30vh); }
+  .ai-composer input { font-size: 14px; min-height: 40px; }
+  .ai-composer button { width: 40px; height: 40px; font-size: 20px; }
+  .modal-actions { flex-direction: column; gap: 8px; }
+  .modal-actions .outline-button,
+  .modal-actions .dark-button { min-height: 46px; font-size: 13px; text-align: center; }
+
+  /* ── Buttons — minimum touch targets ── */
+  button { min-height: 36px; }
+  .check-button { width: 26px; height: 26px; }
+  .sidebar-add-button { width: 32px; height: 32px; font-size: 20px; }
+  .small-icon { width: 32px; height: 32px; }
+  .dark-button { min-height: 46px; font-size: 13px; padding: 12px 14px; }
+  .outline-button { min-height: 42px; font-size: 12px; }
+  .text-button { min-height: 32px; padding: 4px 6px; }
+
+  /* ── Auth ── */
   .auth-visual { display: none; }
-  .auth-card { width: calc(100% - 32px); padding: 28px 20px; margin: 24px auto; border-radius: 10px; }
+  .auth-card { width: calc(100% - 28px); padding: 24px 18px; margin: 20px auto 30px; border-radius: 10px; }
+  .auth-card-head { margin-bottom: 28px; }
 
-  /* Setup screen */
-  .setup-shell { flex-direction: column; }
-  .setup-content { flex-direction: column; }
+  /* ── Setup ── */
+  .setup-top { flex-direction: column; gap: 10px; padding: 18px 16px; }
+  .setup-content { padding: 22px 14px 50px; }
+  .setup-copy h1 { font-size: 30px; letter-spacing: -1px; }
+  .setup-copy > p:not(.eyebrow) { font-size: 13px; }
   .setup-map { display: none; }
-  .setup-copy { padding: 20px 16px; }
+  .company-found i { display: none; }
+
+  /* ── Field editor map ── */
+  .field-editor-map-stage { height: 240px; }
+
+  /* ── Page footer ── */
+  .page-footer { flex-direction: column; gap: 5px; }
+
+  /* ── Location notice ── */
+  .location-notice { padding: 9px 11px; }
 }
 
-/* ── Small mobile 480px ──────────────────────────────────────────────── */
+/* ── 480px: small phones ─────────────────────────────────────────────── */
 @media (max-width: 480px) {
-  .kpi-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
-  .kpi-card { padding: 11px 10px; }
+  .content-wrap { padding: 10px 10px 12px; }
+  .topbar { padding: 0 10px; height: 50px; }
+
+  /* KPI — still 2 col but tighter */
+  .kpi-grid { gap: 6px; }
+  .kpi-card { padding: 10px 8px; gap: 7px; }
+  .kpi-icon { width: 28px; height: 28px; font-size: 13px; }
+  .kpi-card p { font-size: 9px; }
   .kpi-card strong { font-size: 14px; }
+  .kpi-card small { font-size: 8px; }
 
-  /* Показываем только 4 дня погоды */
-  .weather-list { grid-template-columns: repeat(4, 1fr); }
-  .weather-day:nth-child(n+5) { display: none; }
+  /* Panel headers */
+  .panel-header { padding: 12px 10px 9px; }
+  .panel-header h2 { font-size: 13px; }
+  .panel-header p { font-size: 9px; }
 
-  .page-heading h1 { font-size: 18px; letter-spacing: -.5px; }
-  .content-wrap { padding: 12px 10px 10px; }
-  .topbar { padding: 0 12px; }
+  /* Map */
+  .map-stage { min-height: 210px; }
+  .layer-switcher button { padding: 4px 5px; font-size: 7px; }
+  .layer-legend { min-width: 140px; }
 
-  /* Поля в bottombar — компактнее */
+  /* Bottom nav — even more compact */
+  .sidebar { height: 58px; }
   .sidebar-field-item { min-width: 56px; padding: 5px 7px; }
   .field-list-main b { font-size: 9px; }
+  body { padding-bottom: 58px; }
 
-  .panel-header { padding: 13px 12px 10px; }
-  .panel-header h2 { font-size: 13px; }
-}
+  /* Weather — 3 days, compact */
+  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 8px; gap: 4px; }
+  .weather-day { gap: 5px; font-size: 8px; }
+  .weather-day b { font-size: 14px; }
+  .weather-day strong { font-size: 10px; }
 
-/* ── Touch targets — всегда минимум 44px ────────────────────────────── */
-@media (max-width: 768px) {
-  button, [role="button"] { min-height: 36px; }
-  .check-button { width: 24px; height: 24px; }
-  .sidebar-add-button { width: 30px; height: 30px; }
-  .small-icon { width: 30px; height: 30px; }
-  .close-chat { font-size: 26px; top: 12px; right: 14px; width: 36px; height: 36px; display: grid; place-items: center; }
+  /* Economy inputs */
+  .economy-controls { grid-template-columns: 1fr; }
+  .economy-strip { padding: 12px 10px; gap: 12px; }
+
+  /* Modals */
+  .chat-panel { padding: 18px 12px 24px; }
+  .chat-panel h2 { font-size: 20px; }
+
+  /* Chart */
+  .line-chart { height: 110px; margin: 8px 10px 0 34px; }
+  .chart-y { font-size: 7px; left: -27px; }
+  .chart-x { font-size: 7px; }
+
+  /* Heading */
+  .page-heading h1 { font-size: 18px; }
+  .heading-actions .outline-button { font-size: 10px; padding: 9px 6px; }
+
+  /* Risk rows */
+  .risk-row { padding: 8px 12px; }
+  .risk-label b { font-size: 11px; }
+
+  /* Tasks */
+  .task { margin: 0 12px; padding: 10px 0; gap: 8px; }
+  .task b { font-size: 11px; }
+
+  /* Setup */
+  .setup-copy h1 { font-size: 26px; }
+  .setup-form input, .setup-form select { font-size: 14px; }
 }
