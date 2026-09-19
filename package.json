@@ -11,6 +11,9 @@
     "start": "node server/index.mjs",
     "preview": "vite preview"
   },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "concurrently": "latest",
