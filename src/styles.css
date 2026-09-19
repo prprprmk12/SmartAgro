@@ -226,14 +226,23 @@ body { font-size: 15px; }
 .truecolor-scale { background: linear-gradient(to right, #c8b88a, #88b468, #5a9458, #d6c890); }
 .legend-labels { display: flex; justify-content: space-between; color: #7a8d7d; font-size: 8px; }
 .legend-note { display: block; margin-top: 5px; color: #a0aca5; font-size: 7px; }
-.weather-refresh { border: 1px solid #e5d9c0; padding: 5px 9px; border-radius: 5px; background: #fff9ef; }
+
+/* ── Map helpers ─────────────────────────────────────────────────────── */
+.weather-refresh { border: 1px solid #e5d9c0; padding: 5px 9px; border-radius: 5px; background: #fff9ef; cursor: pointer; }
 .real-map { width: 100%; height: 100%; min-height: 280px; }
 .map-loading { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 220px; color: #7a9a7e; font-size: 11px; background: #e8f0e2; }
 .field-editor-map-stage { position: relative; height: 280px; overflow: hidden; border-radius: 7px; }
 
+/* ── Mobile-only nav elements (hidden on desktop) ────────────────────── */
+.mobile-nav-add,
+.mobile-nav-avatar { display: none; }
+
+/* ── profile-name hidden on mobile ──────────────────────────────────── */
+.profile-name { /* visible on desktop */ }
+
 /* ══════════════════════════════════════════════════════════════════════
-   RESPONSIVE — single source of truth, no conflicting duplicates
-   Breakpoints: 1100px  →  768px  →  480px
+   RESPONSIVE  —  1100 → 768 → 480px
+   Single source of truth. No duplicate blocks.
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── 1100px: tablet landscape ───────────────────────────────────────── */
@@ -246,12 +255,9 @@ body { font-size: 15px; }
   .insight-card { min-height: 0; }
   .economy-strip { grid-template-columns: 1fr 1fr; }
   .economy-result { border-left: 0; padding-left: 0; border-top: 1px solid #436652; padding-top: 14px; }
-  .auth-shell { grid-template-columns: 1fr; }
-  .auth-visual { display: none; }
-  .auth-card { width: min(480px, calc(100% - 40px)); margin: 40px auto; }
 }
 
-/* ── 900px: setup screen ─────────────────────────────────────────────── */
+/* ── 900px: setup screen ────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .setup-content { grid-template-columns: 1fr; padding: 35px 20px 60px; }
   .setup-copy { max-width: none; }
@@ -261,263 +267,518 @@ body { font-size: 15px; }
   .setup-add, .setup-error { grid-column: auto; }
 }
 
-/* ── 800px: auth screen stacks ──────────────────────────────────────── */
+/* ── 800px: auth screen ─────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .auth-shell { display: block; }
-  .auth-visual { min-height: 270px; padding: 25px 25px 20px; display: flex; }
-  .auth-visual-copy { margin: 28px 0 0; }
-  .auth-visual-copy h1 { font-size: 34px; letter-spacing: -1.5px; }
+  .auth-visual { min-height: 250px; padding: 24px; display: flex; }
+  .auth-visual-copy { margin: 24px 0 0; }
+  .auth-visual-copy h1 { font-size: 32px; letter-spacing: -1.5px; }
   .auth-visual-copy > p:not(.eyebrow), .auth-proof, .auth-mini-map { display: none; }
-  .auth-card { width: min(520px, calc(100% - 28px)); margin: -22px auto 30px; padding: 28px 22px; position: relative; }
-  .auth-card-head { margin-bottom: 30px; }
+  .auth-card { width: min(520px, calc(100% - 28px)); margin: -22px auto 28px; padding: 26px 20px; position: relative; border-radius: 10px; }
+  .auth-card-head { margin-bottom: 28px; }
 }
 
-/* ── 768px: MOBILE ───────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════════
+   768px — MAIN MOBILE BREAKPOINT
+   ════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
 
-  /* Body padding for bottom nav */
-  body { padding-bottom: 64px; }
+  /* ── Global shell ── */
+  body { padding-bottom: 66px; }
   .app-shell { flex-direction: column; min-height: 100vh; }
+  .main-content { width: 100%; }
 
-  /* ── Bottom navigation bar ── */
+  /* ────────────────────────────────────────────────────────────────────
+     BOTTOM NAVIGATION BAR
+     Layout: [← field tabs (scroll) →] [＋] [avatar]
+  ──────────────────────────────────────────────────────────────────── */
   .sidebar {
     position: fixed; z-index: 50;
     bottom: 0; left: 0; right: 0;
-    width: 100%; height: 64px;
+    width: 100%; height: 66px;
     flex: none; flex-direction: row;
-    align-items: center; padding: 0 6px;
-    border-top: 1px solid #2e5040;
-    overflow: hidden;
+    align-items: center; padding: 0;
+    gap: 0;
+    border-top: 1px solid #2a4a3b;
+    background: #193c31;
   }
+
+  /* Hide desktop-only elements */
   .sidebar .brand,
   .sidebar .farm-switcher,
   .sidebar .sidebar-section-header,
   .sidebar .sidebar-footer { display: none; }
+
+  /* Field tabs — scrollable horizontal strip */
   .sidebar-field-list {
-    display: flex; flex-direction: row; gap: 5px;
+    display: flex; flex-direction: row; gap: 4px;
+    flex: 1; min-width: 0;
     max-height: none; overflow-x: auto; overflow-y: hidden;
-    padding: 0; width: 100%;
+    padding: 0 8px;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
+    align-items: center;
   }
   .sidebar-field-list::-webkit-scrollbar { display: none; }
   .sidebar-field-item {
-    flex: 0 0 auto; flex-direction: column;
+    flex: 0 0 auto;
+    display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     padding: 6px 10px; border-radius: 8px;
-    min-width: 64px; gap: 2px; text-align: center;
+    min-width: 60px; max-width: 90px;
+    gap: 2px; text-align: center;
+    min-height: 50px;
   }
-  .field-list-main b { font-size: 10px; white-space: nowrap; max-width: 72px; }
-  .field-list-main small { font-size: 8px; }
+  .field-list-main b { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 76px; }
+  .field-list-main small { font-size: 8px; margin-top: 1px; }
   .field-list-meta { display: none; }
 
-  /* ── Topbar ── */
-  .topbar { height: 52px; padding: 0 14px; }
-  .breadcrumb { font-size: 11px; gap: 6px; }
-  .live-pill { display: none; }
-  .top-actions { gap: 10px; }
-  /* Profile avatar doubles as profile button on mobile */
-  .profile { font-size: 0; gap: 0; }
-  .profile-avatar { width: 32px; height: 32px; font-size: 10px; }
-  /* Notification button — ensure 44px tap target */
-  .icon-button { width: 40px; height: 40px; display: grid; place-items: center; font-size: 20px; }
+  /* ＋ Add field button — right side of bottom bar */
+  .mobile-nav-add {
+    display: grid; place-items: center;
+    flex: 0 0 50px; height: 66px;
+    border: 0; border-left: 1px solid #2a4a3b;
+    color: #cde5b8; background: transparent;
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+  }
+  .mobile-nav-add:active { background: #254b3d; }
 
-  /* ── Page heading ── */
-  .content-wrap { padding: 14px 12px 16px; }
+  /* Avatar / profile — rightmost button */
+  .mobile-nav-avatar {
+    display: grid; place-items: center;
+    flex: 0 0 56px; height: 66px;
+    border: 0; border-left: 1px solid #2a4a3b;
+    background: transparent; cursor: pointer;
+    padding: 0;
+  }
+  /* Inner avatar circle drawn via the button itself */
+  .mobile-nav-avatar-inner {
+    display: grid; place-items: center;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: #bad985;
+    color: #244532;
+    font-size: 10px; font-weight: 800;
+    pointer-events: none;
+  }
+
+  /* ────────────────────────────────────────────────────────────────────
+     TOPBAR
+  ──────────────────────────────────────────────────────────────────── */
+  .topbar { height: 54px; padding: 0 14px; }
+  .breadcrumb { font-size: 11px; gap: 6px; }
+  .breadcrumb-home { display: none; } /* hide "SmartAgro" text, show field name only */
+  .live-pill { display: none; }
+  .top-actions { gap: 8px; }
+  /* Show only avatar on topbar, hide name text */
+  .profile { display: flex; align-items: center; gap: 0; font-size: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+  .profile-name { display: none; }
+  .profile-avatar { width: 34px; height: 34px; font-size: 11px; display: grid; place-items: center; }
+  /* Notification bell */
+  .icon-button { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; }
+
+  /* ────────────────────────────────────────────────────────────────────
+     CONTENT
+  ──────────────────────────────────────────────────────────────────── */
+  .content-wrap { padding: 14px 12px 18px; }
+
+  /* Page heading */
   .page-heading { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
-  .page-heading h1 { font-size: 20px; letter-spacing: -0.5px; }
-  .muted { font-size: 11px; }
-  .heading-actions { width: 100%; }
-  .heading-actions .outline-button { flex: 1; text-align: center; padding: 10px 8px; font-size: 11px; min-height: 42px; }
+  .page-heading h1 { font-size: 20px; letter-spacing: -0.4px; margin: 0; }
+  .muted { font-size: 11px; margin-top: 4px; }
+  .heading-actions { width: 100%; display: flex; gap: 8px; }
+  .heading-actions .outline-button { flex: 1; text-align: center; padding: 10px 8px; font-size: 11px; min-height: 44px; }
   .secondary-action { display: none; }
 
-  /* ── KPI grid ── */
+  /* KPI grid — 2 columns */
   .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
   .kpi-card { padding: 12px 10px; gap: 9px; }
   .kpi-icon { width: 30px; height: 30px; font-size: 14px; border-radius: 8px; }
-  .kpi-card p { font-size: 10px; }
-  .kpi-card strong { font-size: 16px; letter-spacing: -0.4px; }
+  .kpi-card p { font-size: 10px; margin-bottom: 3px; }
+  .kpi-card strong { font-size: 16px; }
   .kpi-card small { font-size: 9px; }
 
-  /* ── Map ── */
-  .hero-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+  /* Hero / lower / decision grids — single column */
+  .hero-grid, .lower-grid, .decision-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+  .chart-card, .weather-card, .risk-card, .task-card { min-height: auto; }
+
+  /* Map */
   .map-stage { min-height: 240px; }
-  .layer-switcher { top: 9px; right: 9px; }
-  .layer-switcher button { padding: 5px 7px; font-size: 8px; }
+  .panel-header { padding: 13px 13px 10px; }
+  .panel-header h2 { font-size: 14px; }
+  .panel-header p { font-size: 10px; margin-top: 3px; }
   .map-actions .small-icon { width: 32px; height: 32px; }
-  .layer-legend { min-width: 155px; padding: 6px 9px; bottom: 9px; left: 9px; }
+  .layer-switcher { top: 9px; right: 9px; }
+  .layer-switcher button { padding: 6px 7px; font-size: 8px; min-height: 30px; }
+  .layer-legend { min-width: 150px; padding: 6px 8px; bottom: 8px; left: 8px; }
   .legend-title { font-size: 8px; }
   .legend-labels { font-size: 7px; }
-  .legend-note { font-size: 7px; }
 
-  /* ── Insight card ── */
+  /* Insight card */
   .insight-card { padding: 16px 14px; }
-  .insight-card h2 { font-size: 15px; max-width: none; }
-  .insight-copy { font-size: 11px; margin: 10px 0 14px; }
+  .insight-card h2 { font-size: 16px; max-width: none; }
+  .insight-copy { font-size: 11px; margin: 10px 0 14px; max-width: none; }
   .insight-facts { gap: 14px; margin-bottom: 14px; }
+  .source-note { font-size: 9px; }
 
-  /* ── Field table — card layout ── */
+  /* Field table — card layout (no horizontal scroll) */
   .field-table-head { display: none; }
   .field-status { overflow-x: visible; }
   .field-table-row {
     display: grid;
     grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-    gap: 3px 10px;
-    padding: 11px 14px;
-    min-height: auto;
-    min-width: 0;
+    gap: 2px 8px;
+    padding: 10px 12px;
+    min-height: auto; min-width: 0;
   }
   .field-name { grid-column: 1; grid-row: 1; font-size: 12px; }
-  .field-name small { font-size: 9px; }
-  .field-table-row > span:nth-child(2),
-  .field-table-row > strong,
-  .field-table-row > .table-status {
-    grid-column: 1; font-size: 9px; display: inline;
-  }
-  .field-table-row > strong { display: inline; margin-right: 6px; }
-  .row-arrow { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 20px; padding: 4px 8px; }
+  .field-name small { display: block; margin-top: 2px; font-size: 9px; }
+  /* Hide area and harvest columns — show only yield status */
+  .field-table-row > span:nth-child(2) { display: none; }
+  .field-table-row > strong { grid-column: 1; grid-row: 2; font-size: 11px; display: block; }
+  .field-table-row > .table-status { grid-column: 1; grid-row: 3; font-size: 8px; margin-top: 2px; display: inline-block; }
+  .row-arrow { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 22px; padding: 6px; }
 
-  /* ── Chart ── */
-  .lower-grid, .decision-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
-  .chart-card, .weather-card, .risk-card, .task-card { min-height: auto; }
+  /* Chart */
   .chart-summary strong { font-size: 22px; }
   .line-chart { height: 130px; margin: 10px 12px 0 38px; }
-  /* Make chart circles larger on touch */
-  .line-chart circle { r: 4; }
+  .chart-y { font-size: 7px; left: -29px; }
+  .chart-x { font-size: 7px; }
 
-  /* ── Weather — 3 days shown ── */
-  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 10px 10px 14px; }
+  /* Weather — show 3 days only */
+  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 10px; gap: 6px; }
   .weather-day:nth-child(n+4) { display: none; }
-  .weather-day.today ~ .weather-day { display: flex; }
-  .weather-day:nth-child(n+4) { display: none; }
+  .weather-day { font-size: 9px; gap: 6px; }
+  .weather-alert { margin: 10px 12px; padding: 9px; }
 
-  /* ── Economy ── */
-  .economy-strip { grid-template-columns: 1fr; gap: 14px; padding: 14px 12px; }
-  .economy-controls { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-  .economy-price input,
+  /* Economy */
+  .economy-strip { grid-template-columns: 1fr; gap: 14px; padding: 14px 12px; border-radius: 9px; }
+  .economy-controls { grid-template-columns: 1fr 1fr; gap: 10px 12px; }
   .economy-price { font-size: 11px; }
-  .economy-price input { min-height: 40px; padding: 8px; }
-  .economy-result { border-left: 0; border-top: 1px solid #436652; padding: 14px 0 0; }
+  .economy-price input { min-height: 42px; padding: 8px; font-size: 13px; }
+  .economy-result { border-left: 0; border-top: 1px solid #436652; padding: 12px 0 0; }
   .economy-result b { font-size: 18px; }
 
-  /* ── Inputs — ensure 44px touch targets ── */
-  .form-input { min-height: 46px; font-size: 14px; }
-  input[type="number"].form-input { min-height: 46px; }
+  /* Location notice */
+  .location-notice { padding: 9px 10px; margin-bottom: 10px; }
 
-  /* ── Modals — slide up from bottom (sheet) ── */
-  .chat-overlay { padding: 0; align-items: flex-end; background: rgba(20,42,32,.55); }
+  /* Risk */
+  .risk-row { padding: 9px 14px; }
+  .risk-label b { font-size: 11px; }
+
+  /* Tasks */
+  .task { margin: 0 14px; padding: 10px 0; }
+  .task b { font-size: 11px; }
+
+  /* ────────────────────────────────────────────────────────────────────
+     MODALS — full-width sheet from bottom
+  ──────────────────────────────────────────────────────────────────── */
+  .chat-overlay { padding: 0; align-items: flex-end; background: rgba(18,40,30,.6); }
   .chat-panel {
-    width: 100%;
-    max-height: 92vh;
-    border-radius: 16px 16px 0 0;
-    padding: 22px 16px 28px;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    width: 100%; max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px 32px;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  /* Drag handle indicator */
+  .chat-panel::before {
+    content: ''; display: block;
+    width: 38px; height: 4px; border-radius: 2px;
+    background: #cad8c5; margin: 0 auto 18px;
   }
   .registration-panel, .utility-panel { width: 100%; }
-  .close-chat { width: 40px; height: 40px; display: grid; place-items: center; font-size: 26px; top: 10px; right: 12px; }
+  .close-chat { width: 42px; height: 42px; display: grid; place-items: center; font-size: 26px; top: 8px; right: 10px; }
+  .chat-panel h2 { font-size: 20px; padding-right: 44px; }
   .ai-chat-panel { max-height: 92vh; }
-  .ai-messages { max-height: min(220px, 30vh); }
-  .ai-composer input { font-size: 14px; min-height: 40px; }
-  .ai-composer button { width: 40px; height: 40px; font-size: 20px; }
+  .ai-messages { max-height: min(210px, 28vh); }
+  .ai-suggestions button { padding: 8px 10px; font-size: 10px; min-height: 36px; }
+  .ai-composer input { font-size: 14px; min-height: 42px; padding: 10px 8px; }
+  .ai-composer button { width: 42px; height: 42px; font-size: 20px; }
   .modal-actions { flex-direction: column; gap: 8px; }
-  .modal-actions .outline-button,
-  .modal-actions .dark-button { min-height: 46px; font-size: 13px; text-align: center; }
+  .dark-button { min-height: 48px; font-size: 14px; padding: 13px 16px; }
+  .outline-button { min-height: 44px; font-size: 13px; padding: 11px 14px; }
+  .form-input { min-height: 48px; font-size: 14px; padding: 12px 13px; }
+  .form-label { font-size: 13px; margin-top: 16px; }
 
-  /* ── Buttons — minimum touch targets ── */
-  button { min-height: 36px; }
-  .check-button { width: 26px; height: 26px; }
-  .sidebar-add-button { width: 32px; height: 32px; font-size: 20px; }
-  .small-icon { width: 32px; height: 32px; }
-  .dark-button { min-height: 46px; font-size: 13px; padding: 12px 14px; }
-  .outline-button { min-height: 42px; font-size: 12px; }
-  .text-button { min-height: 32px; padding: 4px 6px; }
+  /* Field info panel history */
+  .field-info-summary { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .field-analysis-history { max-height: 55vh; }
 
-  /* ── Auth ── */
+  /* Risk details panel */
+  .risk-details-panel { width: 100%; }
+  .risk-detail-row { gap: 6px 14px; padding: 13px 0; }
+  .risk-detail-row b { font-size: 13px; }
+  .risk-detail-row span { font-size: 11px; }
+
+  /* ────────────────────────────────────────────────────────────────────
+     AUTH on mobile
+  ──────────────────────────────────────────────────────────────────── */
   .auth-visual { display: none; }
-  .auth-card { width: calc(100% - 28px); padding: 24px 18px; margin: 20px auto 30px; border-radius: 10px; }
+  .auth-shell { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 24px 16px; }
+  .auth-card { width: 100%; max-width: none; padding: 28px 20px; margin: 0; border-radius: 14px; box-shadow: 0 8px 32px rgba(30,60,40,.12); }
   .auth-card-head { margin-bottom: 28px; }
+  .auth-card-head:after { font-size: 9px; }
 
-  /* ── Setup ── */
-  .setup-top { flex-direction: column; gap: 10px; padding: 18px 16px; }
-  .setup-content { padding: 22px 14px 50px; }
-  .setup-copy h1 { font-size: 30px; letter-spacing: -1px; }
-  .setup-copy > p:not(.eyebrow) { font-size: 13px; }
+  /* ────────────────────────────────────────────────────────────────────
+     SETUP on mobile
+  ──────────────────────────────────────────────────────────────────── */
+  .setup-top { flex-direction: column; gap: 8px; padding: 16px; align-items: flex-start; }
+  .setup-content { padding: 20px 14px 50px; }
+  .setup-copy h1 { font-size: 28px; letter-spacing: -1px; }
+  .setup-copy > p:not(.eyebrow) { font-size: 13px; margin: 14px 0 18px; }
   .setup-map { display: none; }
+  .company-found { padding: 12px; }
   .company-found i { display: none; }
+  .setup-field-row { padding: 10px; }
+  .setup-finish { min-height: 50px; font-size: 14px; }
 
-  /* ── Field editor map ── */
+  /* Field editor map */
   .field-editor-map-stage { height: 240px; }
 
-  /* ── Page footer ── */
-  .page-footer { flex-direction: column; gap: 5px; }
+  /* Footer */
+  .page-footer { flex-direction: column; gap: 4px; font-size: 9px; }
 
-  /* ── Location notice ── */
-  .location-notice { padding: 9px 11px; }
+  /* Buttons — minimum tap target */
+  button { min-height: 36px; }
+  .check-button { width: 26px; height: 26px; min-height: 26px; }
+  .sidebar-add-button { width: 32px; height: 32px; }
+  .small-icon { width: 32px; height: 32px; }
+  .text-button { min-height: 32px; padding: 4px 8px; }
 }
 
 /* ── 480px: small phones ─────────────────────────────────────────────── */
 @media (max-width: 480px) {
-  .content-wrap { padding: 10px 10px 12px; }
+  .content-wrap { padding: 10px 10px 14px; }
   .topbar { padding: 0 10px; height: 50px; }
+  .topbar .breadcrumb { font-size: 10px; }
 
-  /* KPI — still 2 col but tighter */
+  /* KPI tighter */
   .kpi-grid { gap: 6px; }
   .kpi-card { padding: 10px 8px; gap: 7px; }
-  .kpi-icon { width: 28px; height: 28px; font-size: 13px; }
+  .kpi-icon { width: 27px; height: 27px; font-size: 13px; }
   .kpi-card p { font-size: 9px; }
   .kpi-card strong { font-size: 14px; }
   .kpi-card small { font-size: 8px; }
 
   /* Panel headers */
-  .panel-header { padding: 12px 10px 9px; }
+  .panel-header { padding: 11px 10px 8px; }
   .panel-header h2 { font-size: 13px; }
   .panel-header p { font-size: 9px; }
 
   /* Map */
   .map-stage { min-height: 210px; }
-  .layer-switcher button { padding: 4px 5px; font-size: 7px; }
+  .layer-switcher button { padding: 5px 6px; font-size: 7px; }
   .layer-legend { min-width: 140px; }
 
-  /* Bottom nav — even more compact */
-  .sidebar { height: 58px; }
-  .sidebar-field-item { min-width: 56px; padding: 5px 7px; }
+  /* Bottom nav compact */
+  .sidebar { height: 60px; }
+  .sidebar-field-item { min-width: 54px; padding: 5px 7px; min-height: 46px; }
   .field-list-main b { font-size: 9px; }
-  body { padding-bottom: 58px; }
+  .mobile-nav-add { flex: 0 0 46px; height: 60px; font-size: 20px; }
+  .mobile-nav-avatar { flex: 0 0 50px; height: 60px; font-size: 10px; }
+  body { padding-bottom: 60px; }
 
-  /* Weather — 3 days, compact */
-  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 8px; gap: 4px; }
-  .weather-day { gap: 5px; font-size: 8px; }
+  /* Weather */
+  .weather-list { grid-template-columns: repeat(3, 1fr); padding: 8px; }
   .weather-day b { font-size: 14px; }
   .weather-day strong { font-size: 10px; }
 
-  /* Economy inputs */
+  /* Economy — 1 col on tiny screens */
   .economy-controls { grid-template-columns: 1fr; }
-  .economy-strip { padding: 12px 10px; gap: 12px; }
-
-  /* Modals */
-  .chat-panel { padding: 18px 12px 24px; }
-  .chat-panel h2 { font-size: 20px; }
+  .economy-strip { padding: 12px 10px; }
 
   /* Chart */
-  .line-chart { height: 110px; margin: 8px 10px 0 34px; }
-  .chart-y { font-size: 7px; left: -27px; }
-  .chart-x { font-size: 7px; }
+  .line-chart { height: 110px; margin: 8px 10px 0 32px; }
 
   /* Heading */
   .page-heading h1 { font-size: 18px; }
-  .heading-actions .outline-button { font-size: 10px; padding: 9px 6px; }
 
-  /* Risk rows */
-  .risk-row { padding: 8px 12px; }
-  .risk-label b { font-size: 11px; }
-
-  /* Tasks */
-  .task { margin: 0 12px; padding: 10px 0; gap: 8px; }
-  .task b { font-size: 11px; }
+  /* Auth */
+  .auth-card { padding: 22px 16px; }
 
   /* Setup */
-  .setup-copy h1 { font-size: 26px; }
-  .setup-form input, .setup-form select { font-size: 14px; }
+  .setup-copy h1 { font-size: 24px; }
+  .setup-top { padding: 14px 12px; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   SETUP SCREEN — mobile overrides (полное переопределение)
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Весь экран — flex-колонка, скроллится */
+  .setup-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: #f5f8f2;
+    overflow-y: auto;
+  }
+
+  /* Шапка */
+  .setup-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e1e9df;
+    background: #fff;
+    flex-shrink: 0;
+  }
+  .setup-top .auth-brand { font-size: 18px; }
+  .setup-step { font-size: 9px; letter-spacing: .8px; }
+
+  /* Контент — одна колонка: карта → форма */
+  .setup-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    max-width: none;
+    margin: 0;
+  }
+
+  /* Карта — сверху, фиксированная высота, всегда видна */
+  .setup-map {
+    display: block !important; /* отменяем display:none из старых правил */
+    order: 0;
+    flex-shrink: 0;
+    width: 100%;
+  }
+  .setup-map-stage {
+    height: 280px;
+    position: relative;
+  }
+  .setup-map-stage .real-map {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+  }
+  .setup-map-note {
+    padding: 10px 14px;
+    background: #edf5e9;
+    border-bottom: 1px solid #d5e8cf;
+    font-size: 10px;
+    line-height: 1.45;
+    color: #4d7d51;
+  }
+  .setup-map-note:before {
+    content: '1. Нажимайте по контуру поля. 2. Двойной тап завершает контур. 3. Город недоступен.';
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0;
+  }
+
+  /* Форма — снизу, с паддингом и прокруткой */
+  .setup-copy {
+    order: 1;
+    padding: 20px 16px 80px; /* 80px снизу чтобы кнопка не перекрывала */
+    max-width: none;
+  }
+  .setup-copy h1 {
+    font-size: 24px;
+    letter-spacing: -.8px;
+    margin: 8px 0 6px;
+    line-height: 1.2;
+  }
+  .setup-copy h1 em { font-style: normal; color: #70a760; }
+  .setup-copy > p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 1.55;
+    margin: 8px 0 14px;
+    color: #7c9181;
+  }
+
+  /* Найденное ТОО */
+  .company-found {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    gap: 10px;
+  }
+  .company-found .company-badge { width: 32px; height: 32px; flex: 0 0 32px; font-size: 14px; }
+  .company-found b { font-size: 12px; }
+  .company-found small { font-size: 10px; }
+  .company-found i { display: none; }
+
+  /* Форма добавления поля */
+  .setup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 0;
+  }
+  .setup-form label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #4f6b59;
+  }
+  .setup-form input,
+  .setup-form select {
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    margin-top: 6px;
+    padding: 12px 12px;
+    border: 1px solid #d8e6d4;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #304f3b;
+    background: #fff;
+    outline-color: #72a66a;
+    -webkit-appearance: none;
+  }
+  .setup-add {
+    min-height: 50px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .setup-error { font-size: 12px; color: #aa6251; }
+
+  /* Добавленные поля */
+  .setup-fields { margin-top: 14px; gap: 8px; }
+  .setup-empty {
+    font-size: 12px;
+    padding: 14px 12px;
+    line-height: 1.5;
+    border-radius: 8px;
+  }
+  .setup-field-row {
+    padding: 12px;
+    border-radius: 8px;
+    gap: 10px;
+  }
+  .setup-field-row b { font-size: 13px; }
+  .setup-field-row small { font-size: 10px; }
+  .setup-field-row button { font-size: 22px; min-height: 36px; width: 36px; }
+
+  /* Кнопка финиша — прибита к низу */
+  .setup-finish {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    border-radius: 0;
+    min-height: 58px;
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    box-shadow: 0 -2px 12px rgba(30,60,40,.15);
+  }
+  .setup-finish:disabled { opacity: .45; cursor: not-allowed; }
+  .setup-finish::after { content: '→'; font-size: 20px; }
+}
+
+@media (max-width: 480px) {
+  .setup-map-stage { height: 240px; }
+  .setup-copy { padding: 16px 12px 70px; }
+  .setup-copy h1 { font-size: 20px; }
+  .setup-form input, .setup-form select { min-height: 46px; font-size: 14px; }
+  .setup-add { min-height: 48px; }
+  .setup-finish { min-height: 54px; font-size: 14px; padding: 0 16px; }
 }

@@ -483,6 +483,12 @@ function App() {
           ))}
         </div>
 
+        {/* Mobile-only controls inside bottom nav */}
+        <button className="mobile-nav-add" onClick={openNewFieldEditor} aria-label="Добавить поле">＋</button>
+        <button className="mobile-nav-avatar" onClick={() => setProfileOpen(true)} aria-label="Профиль и выход">
+          <span className="mobile-nav-avatar-inner">{getInitials(agronomistName)}</span>
+        </button>
+
         <div className="sidebar-footer">
           <div className="data-status"><span className="status-dot" /><div><b>Данные сохранены</b><small>Поля и расходы · ручной ввод</small></div></div>
         </div>
@@ -491,12 +497,15 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Обзор</span><b>/</b><strong>{selectedField?.name || active}</strong>
+            <span className="breadcrumb-home">SmartAgro</span><b>/</b><strong>{selectedField?.name || active}</strong>
           </div>
           <div className="top-actions">
             <span className="live-pill"><i /> Система работает</span>
-            <button className="icon-button" aria-label="Уведомления" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
-            <button className="profile" onClick={() => setProfileOpen(true)}>{agronomistName}<span className="profile-avatar">{getInitials(agronomistName)}</span></button>
+            <button className="icon-button" aria-label="Настройки" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
+            <button className="profile" onClick={() => setProfileOpen(true)}>
+              <span className="profile-name">{agronomistName}</span>
+              <span className="profile-avatar" aria-label="Профиль и выход">{getInitials(agronomistName)}</span>
+            </button>
           </div>
         </header>
 
@@ -1300,7 +1309,89 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
     setError('')
   }
 
-  return <div className="setup-shell"><div className="setup-top"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span></div><div className="setup-content"><div className="setup-copy"><p className="eyebrow green-text">ТОО НАЙДЕНО</p><h1>Подключим поля<br /><em>к рабочему столу</em></h1><p>ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}. Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.</p><div className="company-found"><span className="company-badge">⌂</span><div><b>{company.name}</b><small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small></div><i>Найдено</i></div><div className="setup-form"><label>Номер или название поля<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" /></label><label>Что посадили<select value={crop} onChange={(event) => setCrop(event.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label><label>Когда сеяли<input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} /></label><button className="setup-add" onClick={addField}>＋ Добавить поле</button>{error && <small className="setup-error">{error}</small>}</div><div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">Добавьте первое поле, чтобы продолжить</span> : fields.map((field, index) => <div className="setup-field-row" key={`${field.name}-${index}`}><span className="field-health healthy" /><div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button></div>)}</div><button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>Сохранить поля и открыть рабочий стол</button></div><div className="setup-map"><div className="setup-map-stage"><YandexFieldMap fields={fields.map((field) => field.name)} customFields={[]} userLocation={userLocation} fieldPoints={fields.map((field) => field.coordinates)} fieldAreas={fields.map((field) => field.areaHa)} /><div className="setup-map-note" /></div></div></div></div>
+  return (
+    <div className="setup-shell">
+      <div className="setup-top">
+        <div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div>
+        <span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span>
+      </div>
+
+      <div className="setup-content">
+        {/* Map — shows on all screens */}
+        <div className="setup-map">
+          <div className="setup-map-stage">
+            <YandexFieldMap
+              fields={fields.map((field) => field.name)}
+              customFields={[]}
+              userLocation={userLocation}
+              fieldPoints={fields.map((field) => field.coordinates)}
+              fieldAreas={fields.map((field) => field.areaHa)}
+              fieldBoundaries={fields.map((field) => field.boundary)}
+              selectionZones={fields}
+              allowOnlyZones
+            />
+          </div>
+          <div className="setup-map-note" />
+        </div>
+
+        {/* Form */}
+        <div className="setup-copy">
+          <p className="eyebrow green-text">ТОО НАЙДЕНО</p>
+          <h1>Подключим поля<br /><em>к рабочему столу</em></h1>
+          <p>
+            ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}.
+            Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.
+          </p>
+
+          <div className="company-found">
+            <span className="company-badge">⌂</span>
+            <div>
+              <b>{company.name}</b>
+              <small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small>
+            </div>
+            <i>Найдено</i>
+          </div>
+
+          <div className="setup-form">
+            <label>Номер или название поля
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" />
+            </label>
+            <label>Что посадили
+              <select value={crop} onChange={(event) => setCrop(event.target.value)}>
+                <option>Пшеница</option>
+                <option>Ячмень</option>
+                <option>Лен</option>
+                <option>Рапс</option>
+                <option>Другая культура</option>
+              </select>
+            </label>
+            <label>Когда сеяли
+              <input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} />
+            </label>
+            <button className="setup-add" onClick={addField}>＋ Добавить поле</button>
+            {error && <small className="setup-error">{error}</small>}
+          </div>
+
+          <div className="setup-fields">
+            {fields.length === 0
+              ? <span className="setup-empty">Нарисуйте контур поля на карте, заполните данные и нажмите «Добавить»</span>
+              : fields.map((field, index) => (
+                <div className="setup-field-row" key={`${field.name}-${index}`}>
+                  <span className="field-health healthy" />
+                  <div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div>
+                  <button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button>
+                </div>
+              ))
+            }
+          </div>
+
+          <button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>
+            Сохранить поля и открыть рабочий стол
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord) => void; onCompanySelected: (company: Company) => void }) {
