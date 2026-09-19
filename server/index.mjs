@@ -172,8 +172,21 @@ async function start() {
   const fields = db.collection('fields')
 
   app.get('/api/health', async (_req, res) => {
-    await db.command({ ping: 1 })
-    res.json({ ok: true, database: databaseName, mode: 'mongodb' })
+    try {
+      await db.command({ ping: 1 })
+      const userCount = await users.countDocuments()
+      const companyCount = await companies.countDocuments()
+      const isMemory = typeof db.command === 'function' && !client.topology
+      res.json({
+        ok: true,
+        database: databaseName,
+        mode: isMemory ? 'in-memory' : 'mongodb',
+        mongoUri: mongoUri.replace(/:\/\/[^@]+@/, '://***@'),
+        collections: { users: userCount, companies: companyCount },
+      })
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message, mode: 'error' })
+    }
   })
 
   app.get('/api/region-boundary', async (_req, res) => {
