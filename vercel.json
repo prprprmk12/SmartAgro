@@ -3,9 +3,9 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://smartagro-api.onrender.com/api/$1" }
-  ],
-  "env": {
-    "VITE_API_URL": "https://smartagro-api.onrender.com"
-  }
+    {
+      "source": "/api/:path*",
+      "destination": "https://smartagro-api.onrender.com/api/:path*"
+    }
+  ]
 }
