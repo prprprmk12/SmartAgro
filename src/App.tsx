@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-// API base URL: � dev = '' (Vite proxy > localhost:3001), � prod = Render URL �� env
+// API base URL: в dev = '' (Vite proxy → localhost:3001), в prod = Render URL из env
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 const api = (path: string) => `${API_BASE}${path}`
 
-// -- Types ---------------------------------------------------------------------
+// ── Types ─────────────────────────────────────────────────────────────────────
 type FieldRecord = {
   name: string; crop: string; sowingDate: string; areaHa: number; plantedAreaHa: number
   fuelUsedL: number; fuelPricePerL: number; grainPricePerT: number; harvestTotalT: number
@@ -17,7 +17,7 @@ type UserRecord = { id: string; name: string; email: string; companyId: string }
 type Task = { id: string; title: string; fieldName: string; priority: 'high' | 'medium' | 'low'; dueDate: string | null; assignee: string; note: string; status: 'open' | 'done' }
 type SentinelMap = Record<string, { ndvi: number; ndwi: number; evi: number; source: string }>
 
-// -- Storage helpers -----------------------------------------------------------
+// ── Storage helpers ───────────────────────────────────────────────────────────
 function getStoredUser(): UserRecord | null {
   try { const s = localStorage.getItem('smartagro-user'); return s ? JSON.parse(s) as UserRecord : null } catch { return null }
 }
@@ -25,7 +25,7 @@ function getStoredFields(): FieldRecord[] {
   try {
     const stored = JSON.parse(localStorage.getItem('smartagro-field-records') || '[]') as FieldRecord[]
     if (Array.isArray(stored) && stored.length > 0) {
-      return stored.filter((f) => f && f.name && !/^����\s*0[1-3]$/i.test(f.name)).map((f) => ({
+      return stored.filter((f) => f && f.name && !/^поле\s*0[1-3]$/i.test(f.name)).map((f) => ({
         ...f, seedCost: Number(f.seedCost || 0), fuelPricePerL: Number(f.fuelPricePerL || 18),
         grainPricePerT: Number(f.grainPricePerT || 85000), irrigationCost: Number(f.irrigationCost || 0),
         treatmentCost: Number(f.treatmentCost || 0), fertilizerCost: Number(f.fertilizerCost || 0),
@@ -39,25 +39,25 @@ function getStoredCompany() {
   try { const s = localStorage.getItem('smartagro-company'); return s ? JSON.parse(s) as Company : demoCompanies[0] } catch { return demoCompanies[0] }
 }
 function getInitials(name: string) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '��'
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || 'АГ'
 }
 function formatToday() {
   return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()).toUpperCase()
 }
 
-// -- Demo data -----------------------------------------------------------------
+// ── Demo data ─────────────────────────────────────────────────────────────────
 const defaultFields: FieldRecord[] = [
-  { name: '���� 01', crop: '�������', sowingDate: '2026-04-14', areaHa: 72, plantedAreaHa: 72, fuelUsedL: 420, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 164, yieldPerHa: 2.28, yieldForecastT: 2.45, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.094, 71.466] },
-  { name: '���� 02', crop: '�������', sowingDate: '2026-04-12', areaHa: 58, plantedAreaHa: 58, fuelUsedL: 352, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 150, yieldPerHa: 2.59, yieldForecastT: 2.84, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.097, 71.472] },
-  { name: '���� 03', crop: '������', sowingDate: '2026-04-09', areaHa: 46, plantedAreaHa: 44, fuelUsedL: 286, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 98, yieldPerHa: 2.18, yieldForecastT: 2.32, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.09, 71.46] },
+  { name: 'Поле 01', crop: 'Пшеница', sowingDate: '2026-04-14', areaHa: 72, plantedAreaHa: 72, fuelUsedL: 420, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 164, yieldPerHa: 2.28, yieldForecastT: 2.45, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.094, 71.466] },
+  { name: 'Поле 02', crop: 'Пшеница', sowingDate: '2026-04-12', areaHa: 58, plantedAreaHa: 58, fuelUsedL: 352, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 150, yieldPerHa: 2.59, yieldForecastT: 2.84, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.097, 71.472] },
+  { name: 'Поле 03', crop: 'Ячмень', sowingDate: '2026-04-09', areaHa: 46, plantedAreaHa: 44, fuelUsedL: 286, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 98, yieldPerHa: 2.18, yieldForecastT: 2.32, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: [51.09, 71.46] },
 ]
 const demoCompanies: Company[] = [
-  { name: '��� ����� ����', region: '����������� �������', location: '�������������� �����', fields: [] },
-  { name: '��� ������� ����', region: '����������� �������', location: '������������ �����', fields: [] },
-  { name: '��� ������ ����', region: '����������� �������', location: '��������� �����', fields: [] },
+  { name: 'ТОО «Дала Агро»', region: 'Акмолинская область', location: 'Целиноградский район', fields: [] },
+  { name: 'ТОО «Акмола Егін»', region: 'Акмолинская область', location: 'Астраханский район', fields: [] },
+  { name: 'ТОО «Есиль Фарм»', region: 'Акмолинская область', location: 'Есильский район', fields: [] },
 ]
 
-// -- Map / Geo helpers ---------------------------------------------------------
+// ── Map / Geo helpers ─────────────────────────────────────────────────────────
 const akmolaAgriculturalRegion: [number, number][] = [[50.45, 68.25], [52.25, 68.25], [52.25, 73.55], [50.45, 73.55]]
 const astanaCityZone: [number, number][] = [[50.88, 71.05], [51.35, 71.05], [51.35, 71.75], [50.88, 71.75]]
 
@@ -89,16 +89,16 @@ function getPolygonAreaHa(boundary: [number, number][]) {
   return Math.max(0, Math.round(Math.abs(area / 2 / 10000) * 10) / 10)
 }
 function getCropColor(crop: string) {
-  if (/������/i.test(crop)) return '#d6ad4f'
-  if (/�����/i.test(crop)) return '#8eae58'
-  if (/���/i.test(crop)) return '#609fc0'
-  if (/����/i.test(crop)) return '#e4c14f'
+  if (/пшениц/i.test(crop)) return '#d6ad4f'
+  if (/ячмен/i.test(crop)) return '#8eae58'
+  if (/лен/i.test(crop)) return '#609fc0'
+  if (/рапс/i.test(crop)) return '#e4c14f'
   return '#72a85b'
 }
-const standardCrops = ['�������', '������', '���', '����']
-function getFieldNumber(name: string) { const n = name.match(/\d+/)?.[0]; return n ? `�${n}` : name }
+const standardCrops = ['Пшеница', 'Ячмень', 'Лен', 'Рапс']
+function getFieldNumber(name: string) { const n = name.match(/\d+/)?.[0]; return n ? `№${n}` : name }
 
-// -- SVG chart helpers ---------------------------------------------------------
+// ── SVG chart helpers ─────────────────────────────────────────────────────────
 function makeLinePath(values: number[]) {
   return values.map((v, i) => `${i === 0 ? 'M' : 'L'}${i * (700 / Math.max(values.length - 1, 1))},${180 - v * 1.55}`).join(' ')
 }
@@ -108,22 +108,22 @@ function makeAreaPath(values: number[]) {
   return `${line} L${w},180 L0,180 Z`
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // Main App
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function App() {
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('smartagro-authenticated') === 'true')
   const [fieldRecords, setFieldRecords] = useState<FieldRecord[]>(getStoredFields)
-  const [selectedFieldName, setSelectedFieldName] = useState<string>(() => getStoredFields()[0]?.name || '���� 01')
+  const [selectedFieldName, setSelectedFieldName] = useState<string>(() => getStoredFields()[0]?.name || 'Поле 01')
   const [onboardingDone, setOnboardingDone] = useState(() => localStorage.getItem('smartagro-onboarding-complete') === 'true' && getStoredFields().length > 0)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  const [active, setActive] = useState('�����')
+  const [active, setActive] = useState('Обзор')
   const [layer, setLayer] = useState('NDVI')
   const [chatOpen, setChatOpen] = useState(false)
   const [registrationOpen, setRegistrationOpen] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState(getStoredCompany)
-  const [agronomistName, setAgronomistName] = useState(() => getStoredUser()?.name || '�������')
-  // Sentinel �����. ������� ���� �� demo time-series ����� /api/fields/indices
+  const [agronomistName, setAgronomistName] = useState(() => getStoredUser()?.name || 'Агроном')
+  // Sentinel убран. Индексы берём из demo time-series через /api/fields/indices
   const [sentinelIndices, setSentinelIndices] = useState<SentinelMap>({})
   const [sentinelLoading, setSentinelLoading] = useState(false)
 
@@ -133,8 +133,8 @@ function App() {
     await Promise.all(fields.map(async (f, i) => {
       try {
         const [rn, rw] = await Promise.all([
-          fetch(api(`/api/fields/indices?index=ndvi&period=30&field_name=${encodeURIComponent(f.name)}`).then(r => r.json()),
-          fetch(api(`/api/fields/indices?index=ndwi&period=30&field_name=${encodeURIComponent(f.name)}`).then(r => r.json()),
+          fetch(`/api/fields/indices?index=ndvi&period=30&field_name=${encodeURIComponent(f.name)}`).then(r => r.json()),
+          fetch(`/api/fields/indices?index=ndwi&period=30&field_name=${encodeURIComponent(f.name)}`).then(r => r.json()),
         ])
         results[f.name] = {
           ndvi: rn.current ?? (0.52 + i * 0.08),
@@ -162,13 +162,13 @@ function App() {
   const [reportOpen, setReportOpen] = useState(false)
   const [chartPeriod, setChartPeriod] = useState<'30' | '90'>('30')
   const [weatherItems, setWeatherItems] = useState([
-    { day: '�������', icon: '?', temp: '24�', night: '12�', rain: '0%', wind: '4 �/�' },
-    { day: '������',  icon: '?', temp: '26�', night: '14�', rain: '10%', wind: '5 �/�' },
-    { day: '��',      icon: '?', temp: '22�', night: '11�', rain: '45%', wind: '7 �/�' },
-    { day: '��',      icon: '?', temp: '25�', night: '13�', rain: '5%',  wind: '3 �/�' },
-    { day: '��',      icon: '?', temp: '27�', night: '15�', rain: '3%',  wind: '4 �/�' },
-    { day: '��',      icon: '?', temp: '23�', night: '12�', rain: '20%', wind: '6 �/�' },
-    { day: '��',      icon: '?', temp: '25�', night: '13�', rain: '8%',  wind: '4 �/�' },
+    { day: 'Сегодня', icon: '☀', temp: '24°', night: '12°', rain: '0%', wind: '4 м/с' },
+    { day: 'Завтра',  icon: '◒', temp: '26°', night: '14°', rain: '10%', wind: '5 м/с' },
+    { day: 'Ср',      icon: '☁', temp: '22°', night: '11°', rain: '45%', wind: '7 м/с' },
+    { day: 'Чт',      icon: '☀', temp: '25°', night: '13°', rain: '5%',  wind: '3 м/с' },
+    { day: 'Пт',      icon: '☀', temp: '27°', night: '15°', rain: '3%',  wind: '4 м/с' },
+    { day: 'Сб',      icon: '◒', temp: '23°', night: '12°', rain: '20%', wind: '6 м/с' },
+    { day: 'Вс',      icon: '☀', temp: '25°', night: '13°', rain: '8%',  wind: '4 м/с' },
   ])
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [weatherSource, setWeatherSource] = useState('Demo snapshot')
@@ -176,12 +176,12 @@ function App() {
   const [dbMode, setDbMode] = useState<'live' | 'demo' | 'checking'>('checking')
   useEffect(() => {
     if (!authenticated) return
-    fetch(api('/api/health').then((r) => r.json()).then((d) => {
+    fetch('/api/health').then((r) => r.json()).then((d) => {
       setDbMode(d.mode === 'mongodb' ? 'live' : 'demo')
     }).catch(() => setDbMode('demo'))
   }, [authenticated])
 
-  // companyId ��� ������������� � MongoDB
+  // companyId для синхронизации с MongoDB
   const companyId = getStoredUser()?.companyId ?? null
 
   const persistFields = useCallback((nextFields: FieldRecord[]) => {
@@ -189,7 +189,7 @@ function App() {
     localStorage.setItem('smartagro-field-records', JSON.stringify(nextFields))
     const cid = getStoredUser()?.companyId
     if (cid && cid !== 'demo') {
-      fetch(api(`/api/companies/${cid}/fields`, {
+      fetch(`/api/companies/${cid}/fields`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextFields),
@@ -197,14 +197,14 @@ function App() {
     }
   }, [])
 
-  // ��������� ���� �� MongoDB ��� ����� (���� ��� ���� ������ � ��� ������������ localStorage)
+  // Загружаем поля из MongoDB при входе (если там есть данные — они приоритетнее localStorage)
   useEffect(() => {
     if (!authenticated || !companyId || companyId === 'demo') return
-    fetch(api(`/api/companies/${companyId}/fields`)
+    fetch(`/api/companies/${companyId}/fields`)
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((items: FieldRecord[]) => {
         if (Array.isArray(items) && items.length > 0) {
-          // ����������� ������ �� ��
+          // Нормализуем данные из БД
           const normalized = items.map((f) => ({
             ...f,
             seedCost: Number(f.seedCost || 0),
@@ -224,7 +224,7 @@ function App() {
           }
         }
       })
-      .catch(() => {}) // ��� ������ ������� � localStorage
+      .catch(() => {}) // при ошибке остаёмся с localStorage
   }, [authenticated, companyId])
 
   const selectedField = fieldRecords.find((f) => f.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
@@ -290,21 +290,21 @@ function App() {
       const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,windspeed_10m_max&timezone=auto&forecast_days=7`)
       if (!r.ok) throw new Error('weather')
       const data = await r.json()
-      const labels = ['�������', '������', '��', '��', '��', '��', '��']
+      const labels = ['Сегодня', 'Завтра', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
       setWeatherItems(data.daily.time.map((date: string, i: number) => ({
         day: labels[i] ?? date.slice(5),
-        icon: data.daily.weathercode[i] > 60 ? '?' : data.daily.weathercode[i] > 2 ? '?' : '?',
-        temp: `${Math.round(data.daily.temperature_2m_max[i])}�`,
-        night: `${Math.round(data.daily.temperature_2m_min[i])}�`,
+        icon: data.daily.weathercode[i] > 60 ? '☁' : data.daily.weathercode[i] > 2 ? '◒' : '☀',
+        temp: `${Math.round(data.daily.temperature_2m_max[i])}°`,
+        night: `${Math.round(data.daily.temperature_2m_min[i])}°`,
         rain: `${data.daily.precipitation_probability_max[i] ?? 0}%`,
-        wind: `${Math.round(data.daily.windspeed_10m_max[i] || 0)} �/�`,
+        wind: `${Math.round(data.daily.windspeed_10m_max[i] || 0)} м/с`,
       })))
-      setWeatherSource('Open-Meteo � ������ ���')
-    } catch { setWeatherSource('Demo snapshot � ���� ����������') }
+      setWeatherSource('Open-Meteo · только что')
+    } catch { setWeatherSource('Demo snapshot · сеть недоступна') }
     finally { setWeatherLoading(false) }
   }
 
-  // ���������� � ����������� ���� ��� ��� �����, �������� �� ������
+  // Геолокация — запрашиваем один раз при входе, повторно по кнопке
   const geoRequestedRef = useRef(false)
   useEffect(() => {
     if (!authenticated) return
@@ -334,41 +334,41 @@ function App() {
     }} />
   )
 
-  // -- NAV ITEMS ---------------------------------------------------------------
+  // ── NAV ITEMS ───────────────────────────────────────────────────────────────
   const navItems = [
-    { id: '�����',     icon: '?', label: '�����' },
-    { id: '����',      icon: '?', label: '����' },
-    { id: '���������', icon: '?', label: '���������' },
-    { id: '������',    icon: '?', label: '������' },
-    { id: '��������',  icon: '?', label: '��������' },
-    { id: '���������', icon: '?', label: '���������' },
-    { id: '�����',     icon: 'v', label: '�����' },
+    { id: 'Обзор',     icon: '⊞', label: 'Обзор' },
+    { id: 'Поля',      icon: '⌁', label: 'Поля' },
+    { id: 'Аналитика', icon: '◈', label: 'Аналитика' },
+    { id: 'Погода',    icon: '◒', label: 'Погода' },
+    { id: 'Операции',  icon: '✓', label: 'Операции' },
+    { id: 'Сравнение', icon: '⊟', label: 'Сравнение' },
+    { id: 'Отчет',     icon: '↓', label: 'Отчет' },
   ]
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">?</span><span>smart<span>agro</span></span></div>
+        <div className="brand"><span className="brand-mark">✦</span><span>smart<span>agro</span></span></div>
         <button className="farm-switcher" onClick={() => setRegistrationOpen(true)}>
           <div className="avatar">{getInitials(agronomistName)}</div>
           <div><b>{agronomistName}</b><small>{selectedCompany.name}</small></div>
-          <span>?</span>
+          <span>⌄</span>
         </button>
-        <div className="sidebar-section-header"><span>���� ���������</span><button className="sidebar-add-button" onClick={openNewFieldEditor} aria-label="�������� ����">+</button></div>
+        <div className="sidebar-section-header"><span>Поля хозяйства</span><button className="sidebar-add-button" onClick={openNewFieldEditor} aria-label="Добавить поле">＋</button></div>
         <div className="sidebar-field-list">
           {fieldRecords.map((f) => (
-            <button key={f.name} className={selectedField?.name === f.name ? 'sidebar-field-item active' : 'sidebar-field-item'} onClick={() => { setSelectedFieldName(f.name); setActive('�����') }}>
+            <button key={f.name} className={selectedField?.name === f.name ? 'sidebar-field-item active' : 'sidebar-field-item'} onClick={() => { setSelectedFieldName(f.name); setActive('Обзор') }}>
               <div className="field-list-main"><b>{f.name}</b><small>{f.crop}</small></div>
-              <div className="field-list-meta"><strong>{f.areaHa} ��</strong><span>{f.yieldPerHa.toFixed(2)} �/��</span></div>
+              <div className="field-list-meta"><strong>{f.areaHa} га</strong><span>{f.yieldPerHa.toFixed(2)} т/га</span></div>
             </button>
           ))}
         </div>
         <nav className="sidebar-nav">
-          <p className="nav-caption">�������</p>
+          <p className="nav-caption">РАЗДЕЛЫ</p>
           {navItems.map((item) => (
             <button key={item.id} className={active === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setActive(item.id)}>
               <span className="nav-icon">{item.icon}</span>{item.label}
-              {item.id === '��������' && <span className="nav-dot" />}
+              {item.id === 'Операции' && <span className="nav-dot" />}
             </button>
           ))}
         </nav>
@@ -376,8 +376,8 @@ function App() {
           <div className="data-status">
             <span className="status-dot" style={dbMode === 'demo' ? { background: '#e3b65e' } : {}} />
             <div>
-              <b>{dbMode === 'live' ? 'MongoDB ����������' : dbMode === 'demo' ? 'Demo-�����' : '�����������'}</b>
-              <small>{dbMode === 'live' ? '������ ���������������� � �����' : dbMode === 'demo' ? '������ ������ � ��������' : '��������� ����������'}</small>
+              <b>{dbMode === 'live' ? 'MongoDB подключена' : dbMode === 'demo' ? 'Demo-режим' : 'Подключение…'}</b>
+              <small>{dbMode === 'live' ? 'Данные синхронизируются с базой' : dbMode === 'demo' ? 'Данные только в браузере' : 'Проверяем соединение'}</small>
             </div>
           </div>
         </div>
@@ -387,16 +387,16 @@ function App() {
         <header className="topbar">
           <div className="breadcrumb"><span>{active}</span><b>/</b><strong>{selectedField?.name || active}</strong></div>
           <div className="top-actions">
-            <span className="live-pill"><i /> ������� ��������</span>
-            {dbMode === 'demo' && <span className="demo-pill" title="MongoDB ���������� � ������ �������� ��������">? Demo-�����</span>}
+            <span className="live-pill"><i /> Система работает</span>
+            {dbMode === 'demo' && <span className="demo-pill" title="MongoDB недоступен — данные хранятся локально">⚠ Demo-режим</span>}
             {dbMode === 'live' && <span className="live-pill db-live"><i className="db-dot" /> MongoDB</span>}
-            <button className="icon-button" aria-label="���������" onClick={() => setSettingsOpen(true)}>?<i className="notification-dot" /></button>
+            <button className="icon-button" aria-label="Настройки" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
             <button className="profile" onClick={() => setProfileOpen(true)}>{agronomistName}<span className="profile-avatar">{getInitials(agronomistName)}</span></button>
           </div>
         </header>
 
         <div className="content-wrap">
-          {active === '�����' && (
+          {active === 'Обзор' && (
             <OverviewSection
               selectedField={selectedField} fieldRecords={fieldRecords} selectedCompany={selectedCompany}
               agronomistName={agronomistName} totalArea={totalArea} economics={economics}
@@ -411,16 +411,16 @@ function App() {
               sentinelIndices={sentinelIndices}
             />
           )}
-          {active === '����' && (
+          {active === 'Поля' && (
             <FieldsSection selectedField={selectedField} fieldRecords={fieldRecords} layer={layer} setLayer={setLayer}
               userLocation={userLocation} onOpenFieldEditor={openFieldEditor} onAddField={openNewFieldEditor}
               onSelectField={(name) => setSelectedFieldName(name)} sentinelIndices={sentinelIndices} />
           )}
-          {active === '���������' && <AnalyticsSection selectedField={selectedField} chartValues={chartValues} chartPeriod={chartPeriod} setChartPeriod={setChartPeriod} sentinelIndices={sentinelIndices} sentinelLoading={sentinelLoading} onRefreshSentinel={() => fetchSentinelIndices(fieldRecords)} />}
-          {active === '������' && <WeatherSection weatherItems={weatherItems} weatherLoading={weatherLoading} weatherSource={weatherSource} refreshWeather={refreshWeather} selectedField={selectedField} />}
-          {active === '��������' && <OperationsSection selectedField={selectedField} fieldRecords={fieldRecords} onNavigate={setActive} />}
-          {active === '���������' && <MultiFieldSection fieldRecords={fieldRecords} sentinelIndices={sentinelIndices} sentinelLoading={sentinelLoading} onRefresh={() => fetchSentinelIndices(fieldRecords)} userLocation={userLocation} layer={layer} setLayer={setLayer} />}
-          {active === '�����' && <ReportSection company={selectedCompany.name} fields={fieldRecords} selectedField={selectedField} economics={economics} weatherItems={weatherItems} sentinelIndices={sentinelIndices} />}
+          {active === 'Аналитика' && <AnalyticsSection selectedField={selectedField} chartValues={chartValues} chartPeriod={chartPeriod} setChartPeriod={setChartPeriod} sentinelIndices={sentinelIndices} sentinelLoading={sentinelLoading} onRefreshSentinel={() => fetchSentinelIndices(fieldRecords)} />}
+          {active === 'Погода' && <WeatherSection weatherItems={weatherItems} weatherLoading={weatherLoading} weatherSource={weatherSource} refreshWeather={refreshWeather} selectedField={selectedField} />}
+          {active === 'Операции' && <OperationsSection selectedField={selectedField} fieldRecords={fieldRecords} onNavigate={setActive} />}
+          {active === 'Сравнение' && <MultiFieldSection fieldRecords={fieldRecords} sentinelIndices={sentinelIndices} sentinelLoading={sentinelLoading} onRefresh={() => fetchSentinelIndices(fieldRecords)} userLocation={userLocation} layer={layer} setLayer={setLayer} />}
+          {active === 'Отчет' && <ReportSection company={selectedCompany.name} fields={fieldRecords} selectedField={selectedField} economics={economics} weatherItems={weatherItems} sentinelIndices={sentinelIndices} />}
         </div>
       </main>
 
@@ -434,9 +434,9 @@ function App() {
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // OVERVIEW SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 type OverviewProps = {
   selectedField: FieldRecord; fieldRecords: FieldRecord[]; selectedCompany: Company; agronomistName: string
   totalArea: number; economics: ReturnType<typeof computeEconomicsMemo>; layer: string; setLayer: (l: string) => void
@@ -458,30 +458,30 @@ function OverviewSection({ selectedField, fieldRecords, selectedCompany, agronom
       <section className="page-heading">
         <div>
           <p className="eyebrow">{formatToday()}</p>
-          <h1>������ ����, {agronomistName.split(' ')[0]}</h1>
-          <p className="muted">��������� ��������� � �������� ������� �� �������.</p>
+          <h1>Добрый день, {agronomistName.split(' ')[0]}</h1>
+          <p className="muted">Состояние хозяйства и ключевые решения на сегодня.</p>
         </div>
         <div className="heading-actions">
-          <button className="outline-button secondary-action" onClick={onOpenRegistration}>? ��� ���������</button>
-          <button className="outline-button" onClick={onOpenReport}>v �����</button>
-          <button className="outline-button" onClick={onOpenChat}>? �������� AI</button>
+          <button className="outline-button secondary-action" onClick={onOpenRegistration}>⌘ Мои хозяйства</button>
+          <button className="outline-button" onClick={onOpenReport}>↓ Отчет</button>
+          <button className="outline-button" onClick={onOpenChat}>✦ Спросить AI</button>
         </div>
       </section>
 
       <section className="kpi-grid">
-        <KpiCard label="�������" value={`${selectedField.areaHa} ��`} meta={`${selectedField.plantedAreaHa} �� �������`} icon="?" tone="green" />
-        <KpiCard label="�������" value={`${selectedField.fuelUsedL} �`} meta={`��� ����: ${fieldRecords.reduce((s, f) => s + f.fuelUsedL, 0)} �`} icon="?" tone="lime" />
-        <KpiCard label="�����������" value={`${selectedField.yieldPerHa.toFixed(2)} �/��`} meta={`�������: ${selectedField.yieldForecastT.toFixed(2)} �/��`} icon="?" tone="blue" />
-        <KpiCard label="�������" value={`${Math.round(economics.margin).toLocaleString('ru-RU')} ?`} meta={`������� ${Math.round(economics.revenue).toLocaleString('ru-RU')} ?`} icon="?" tone="orange" />
+        <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
+        <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Все поля: ${fieldRecords.reduce((s, f) => s + f.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
+        <KpiCard label="Урожайность" value={`${selectedField.yieldPerHa.toFixed(2)} т/га`} meta={`Прогноз: ${selectedField.yieldForecastT.toFixed(2)} т/га`} icon="✧" tone="blue" />
+        <KpiCard label="Прибыль" value={`${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`} meta={`Выручка ${Math.round(economics.revenue).toLocaleString('ru-RU')} ₸`} icon="₸" tone="orange" />
       </section>
 
       <section className="hero-grid" id="fields-map">
         <div className="map-card panel">
           <div className="panel-header">
-            <div><h2>��������� �����</h2><p>{selectedCompany.name} � {selectedCompany.location} � ������.�����</p></div>
+            <div><h2>Состояние полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · Яндекс.Карты</p></div>
             <div className="map-actions">
-              <button className="small-icon" onClick={onOpenRegistration} aria-label="���������">?</button>
-              <button className="small-icon" onClick={() => onOpenFieldEditor(selectedField.name)} aria-label="������������� ����">?</button>
+              <button className="small-icon" onClick={onOpenRegistration} aria-label="Хозяйства">⌖</button>
+              <button className="small-icon" onClick={() => onOpenFieldEditor(selectedField.name)} aria-label="Редактировать поле">✎</button>
             </div>
           </div>
           <div className="map-stage">
@@ -489,22 +489,22 @@ function OverviewSection({ selectedField, fieldRecords, selectedCompany, agronom
               fieldPoints={fieldRecords.map((f) => f.coordinates)} fieldAreas={fieldRecords.map((f) => f.areaHa)}
               fieldBoundaries={fieldRecords.map((f) => f.boundary)} activeLayer={layer}
               fieldNdvi={fieldRecords.map((f) => sentinelIndices[f.name]?.ndvi ?? (fieldRecords.indexOf(f) * 0.08 + 0.52))} fieldNdwi={fieldRecords.map((f) => sentinelIndices[f.name]?.ndwi ?? (fieldRecords.indexOf(f) * 0.06 + 0.31))} />
-            <div className="layer-switcher">{['NDVI', 'NDWI', 'EVI', '�������� ����'].map((item) => <button key={item} className={layer === item ? 'selected' : ''} onClick={() => setLayer(item)}>{item}</button>)}</div>
+            <div className="layer-switcher">{['NDVI', 'NDWI', 'EVI', 'Истинный цвет'].map((item) => <button key={item} className={layer === item ? 'selected' : ''} onClick={() => setLayer(item)}>{item}</button>)}</div>
             <LayerLegend layer={layer} />
           </div>
         </div>
 
         <div className="insight-card panel">
-          <div className="insight-orbit">?</div>
+          <div className="insight-orbit">✦</div>
           <p className="eyebrow green-text">AI SMART FARM INSIGHT</p>
-          <h2>{selectedField.name} � ������� �� ����</h2>
-          <p className="insight-copy">AI ��������� �������� ����� � ������� �� ��������� ������ �������� � �������� �������� �����������.</p>
+          <h2>{selectedField.name} · прогноз по полю</h2>
+          <p className="insight-copy">AI оценивает итоговый доход и прибыль на основании данных агронома и внешнего прогноза урожайности.</p>
           <div className="insight-facts">
-            <div><span className="fact-icon">?</span><div><small>������� ������</small><b>{selectedField.yieldForecastT.toFixed(2)} �/��</b></div></div>
-            <div><span className="fact-icon amber">!</span><div><small>NDVI ����</small><b>0.{(68 + fieldRecords.indexOf(selectedField) * 4)}</b></div></div>
+            <div><span className="fact-icon">↗</span><div><small>Прогноз урожая</small><b>{selectedField.yieldForecastT.toFixed(2)} т/га</b></div></div>
+            <div><span className="fact-icon amber">!</span><div><small>NDVI поля</small><b>0.{(68 + fieldRecords.indexOf(selectedField) * 4)}</b></div></div>
           </div>
-          <button className="dark-button" onClick={onOpenChat}>��������� � AI-������� <span>></span></button>
-          <p className="source-note">������� � �������� � ���� �������� � ����������� � ������� ��������</p>
+          <button className="dark-button" onClick={onOpenChat}>Разобрать с AI-агентом <span>→</span></button>
+          <p className="source-note">Расходы и операции — ввод агронома · урожайность — внешний источник</p>
         </div>
       </section>
 
@@ -513,19 +513,19 @@ function OverviewSection({ selectedField, fieldRecords, selectedCompany, agronom
 
       <section className="field-status panel">
         <div className="panel-header">
-          <div><h2>���� ��� ���������</h2><p>��������� � ������� ������ �������, ����������� � �� �������� ���������</p></div>
-          <button className="text-button" onClick={onAddField}>+ �������� ����</button>
+          <div><h2>Поля под контролем</h2><p>Параметры и расходы вводит агроном, урожайность — из внешнего источника</p></div>
+          <button className="text-button" onClick={onAddField}>＋ Добавить поле</button>
         </div>
-        <div className="field-table-head"><span>����</span><span>�������</span><span>�������</span><span>�����������</span><span /></div>
+        <div className="field-table-head"><span>Поле</span><span>Площадь</span><span>Собрано</span><span>Урожайность</span><span /></div>
         {fieldRecords.map((f, i) => {
           const isActive = f.name === selectedField.name
           return (
             <button key={`${f.name}-${i}`} className={isActive ? 'field-table-row active' : 'field-table-row'} onClick={() => onSelectField(f.name)}>
-              <span className="field-name"><i className={f.yieldPerHa >= 2.2 ? 'field-health healthy' : 'field-health watch'} />{f.name}<small>{f.crop} � {f.sowingDate}</small></span>
-              <span>{f.areaHa} ��</span>
-              <strong>{Number(f.harvestTotalT || 0).toLocaleString('ru-RU')} �</strong>
-              <span className={f.yieldPerHa >= 2.2 ? 'table-status healthy-text' : 'table-status watch-text'}>{f.yieldPerHa.toFixed(2)} �/��</span>
-              <span className="row-arrow" onClick={(e) => { e.stopPropagation(); onOpenFieldEditor(f.name) }}>?</span>
+              <span className="field-name"><i className={f.yieldPerHa >= 2.2 ? 'field-health healthy' : 'field-health watch'} />{f.name}<small>{f.crop} · {f.sowingDate}</small></span>
+              <span>{f.areaHa} га</span>
+              <strong>{Number(f.harvestTotalT || 0).toLocaleString('ru-RU')} т</strong>
+              <span className={f.yieldPerHa >= 2.2 ? 'table-status healthy-text' : 'table-status watch-text'}>{f.yieldPerHa.toFixed(2)} т/га</span>
+              <span className="row-arrow" onClick={(e) => { e.stopPropagation(); onOpenFieldEditor(f.name) }}>✎</span>
             </button>
           )
         })}
@@ -534,22 +534,22 @@ function OverviewSection({ selectedField, fieldRecords, selectedCompany, agronom
       <section className="lower-grid" id="growth-chart">
         <div className="chart-card panel">
           <div className="panel-header">
-            <div><h2>���� ��������</h2><p>{selectedField.name} � {selectedField.crop} � {layer}</p></div>
-            <select aria-label="������ �������" value={chartPeriod} onChange={(e) => setChartPeriod(e.target.value as '30' | '90')}>
-              <option value="30">��������� 30 ����</option>
-              <option value="90">��������� 90 ����</option>
+            <div><h2>Рост растений</h2><p>{selectedField.name} · {selectedField.crop} · {layer}</p></div>
+            <select aria-label="Период графика" value={chartPeriod} onChange={(e) => setChartPeriod(e.target.value as '30' | '90')}>
+              <option value="30">Последние 30 дней</option>
+              <option value="90">Последние 90 дней</option>
             </select>
           </div>
-          <div className="chart-summary"><strong>{selectedField.yieldForecastT.toFixed(2)}</strong><span className="positive">? {Math.abs(selectedField.yieldForecastT - selectedField.yieldPerHa).toFixed(2)} �/��</span><small>������� ������� �����������</small></div>
+          <div className="chart-summary"><strong>{selectedField.yieldForecastT.toFixed(2)}</strong><span className="positive">↗ {Math.abs(selectedField.yieldForecastT - selectedField.yieldPerHa).toFixed(2)} т/га</span><small>Средний прогноз урожайности</small></div>
           <div className="line-chart">
             <div className="chart-y"><span>1.0</span><span>0.75</span><span>0.50</span><span>0.25</span></div>
-            <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label="�������� NDVI">
+            <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label="Динамика NDVI">
               <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#94c79d" stopOpacity=".4" /><stop offset="1" stopColor="#94c79d" stopOpacity="0" /></linearGradient></defs>
               <path className="chart-area" d={makeAreaPath(chartValues)} />
               <path className="chart-line" d={makeLinePath(chartValues)} />
               {chartValues.map((v, i) => <circle key={i} cx={i * (700 / Math.max(chartValues.length - 1, 1))} cy={180 - v * 1.55} r="3" />)}
             </svg>
-            <div className="chart-x"><span>{chartPeriod === '90' ? '19 ���' : '18 ���'}</span><span>{chartPeriod === '90' ? '10 ���' : '25 ���'}</span><span>{chartPeriod === '90' ? '01 ���' : '01 ���'}</span><span>{chartPeriod === '90' ? '23 ���' : '08 ���'}</span><span>�������</span></div>
+            <div className="chart-x"><span>{chartPeriod === '90' ? '19 июн' : '18 авг'}</span><span>{chartPeriod === '90' ? '10 июл' : '25 авг'}</span><span>{chartPeriod === '90' ? '01 авг' : '01 сен'}</span><span>{chartPeriod === '90' ? '23 авг' : '08 сен'}</span><span>Сегодня</span></div>
           </div>
         </div>
         <WeatherWidget weatherItems={weatherItems} weatherLoading={weatherLoading} weatherSource={weatherSource} refreshWeather={refreshWeather} compact />
@@ -557,57 +557,57 @@ function OverviewSection({ selectedField, fieldRecords, selectedCompany, agronom
 
       <section className="decision-grid" id="risk-panel">
         <div className="risk-card panel">
-          <div className="panel-header"><div><h2>������������� �����</h2><p>������ �� ��������� 10 ����</p></div><button className="text-button" onClick={() => onNavigate('���������')}>��������� ></button></div>
-          <Risk label="������" score={28} status="������ ����" color="green" />
-          <Risk label="�������" score={41} status="��������� ����" color="amber" />
-          <Risk label="������ ����" score={12} status="������ ����" color="green" />
-          <Risk label="������� �������" score={33} status="������ ����" color="green" />
+          <div className="panel-header"><div><h2>Климатические риски</h2><p>Оценка на ближайшие 10 дней</p></div><button className="text-button" onClick={() => onNavigate('Аналитика')}>Детальнее →</button></div>
+          <Risk label="Засуха" score={28} status="Низкий риск" color="green" />
+          <Risk label="Суховей" score={41} status="Умеренный риск" color="amber" />
+          <Risk label="Ранний снег" score={12} status="Низкий риск" color="green" />
+          <Risk label="Дефицит осадков" score={33} status="Низкий риск" color="green" />
         </div>
         <div className="task-card panel">
-          <div className="panel-header"><div><h2>��������� �������</h2><p>������������ SmartAgro</p></div><button className="text-button" onClick={() => onNavigate('��������')}>��� ������ ></button></div>
+          <div className="panel-header"><div><h2>Следующие решения</h2><p>Рекомендации SmartAgro</p></div><button className="text-button" onClick={() => onNavigate('Операции')}>Все задачи →</button></div>
           <QuickTaskList fieldName={selectedField.name} />
         </div>
       </section>
 
       <section className="economy-strip panel" id="economy-panel">
         <div>
-          <p className="eyebrow">��������� {selectedField.name.toUpperCase()}</p>
-          <h2>������� �������� ������</h2>
-          <p className="muted">������� {totalArea} �� � ���� ������ �� ������ ��������.</p>
+          <p className="eyebrow">ЭКОНОМИКА {selectedField.name.toUpperCase()}</p>
+          <h2>Базовый сценарий сезона</h2>
+          <p className="muted">Площадь {totalArea} га · учёт ведётся из данных агронома.</p>
         </div>
         <div className="economy-controls">
-          <div className="economy-readonly"><span>������� ������</span><strong>{selectedField.yieldForecastT.toFixed(2)} �/��</strong><small>�������� ������������ ��������</small></div>
-          <label className="economy-price">�������, ?/�<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(e) => persistFields(fieldRecords.map((f) => f.name === selectedField.name ? { ...f, fuelPricePerL: Number(e.target.value) } : f))} /></label>
-          <label className="economy-price">���� �����, ?/�<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(e) => persistFields(fieldRecords.map((f) => f.name === selectedField.name ? { ...f, grainPricePerT: Number(e.target.value) } : f))} /></label>
+          <div className="economy-readonly"><span>Прогноз урожая</span><strong>{selectedField.yieldForecastT.toFixed(2)} т/га</strong><small>Источник подключается отдельно</small></div>
+          <label className="economy-price">Топливо, ₸/л<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(e) => persistFields(fieldRecords.map((f) => f.name === selectedField.name ? { ...f, fuelPricePerL: Number(e.target.value) } : f))} /></label>
+          <label className="economy-price">Цена зерна, ₸/т<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(e) => persistFields(fieldRecords.map((f) => f.name === selectedField.name ? { ...f, grainPricePerT: Number(e.target.value) } : f))} /></label>
         </div>
         <div className="economy-result">
-          <small>��������� �������</small>
-          <b className={economics.margin >= 0 ? 'margin-positive' : 'margin-negative'}>{Math.round(economics.margin).toLocaleString('ru-RU')} ?</b>
-          <span>�������: {Math.round(economics.revenue).toLocaleString('ru-RU')} ?</span>
-          <span>�������: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ?</span>
-          <span>�����: {economics.expectedHarvest.toFixed(1)} �</span>
+          <small>Ожидаемая прибыль</small>
+          <b className={economics.margin >= 0 ? 'margin-positive' : 'margin-negative'}>{Math.round(economics.margin).toLocaleString('ru-RU')} ₸</b>
+          <span>Выручка: {Math.round(economics.revenue).toLocaleString('ru-RU')} ₸</span>
+          <span>Расходы: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸</span>
+          <span>Объём: {economics.expectedHarvest.toFixed(1)} т</span>
         </div>
       </section>
 
       <YieldForecastPanel field={selectedField} />
 
-      <footer className="page-footer"><span>SmartAgro AI Advisor � v1.0.0 � demo-data-2026-v1</span><span>������ Open-Meteo � ����� ������ � MongoDB Atlas</span></footer>
+      <footer className="page-footer"><span>SmartAgro AI Advisor · v1.0.0 · demo-data-2026-v1</span><span>Погода Open-Meteo · Карты Яндекс · MongoDB Atlas</span></footer>
     </>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // FIELDS SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function FieldsSection({ selectedField, fieldRecords, layer, setLayer, userLocation, onOpenFieldEditor, onAddField, onSelectField, sentinelIndices }: { selectedField: FieldRecord; fieldRecords: FieldRecord[]; layer: string; setLayer: (l: string) => void; userLocation: { lat: number; lon: number } | null; onOpenFieldEditor: (n: string) => void; onAddField: () => void; onSelectField: (n: string) => void; sentinelIndices: SentinelMap }) {
   return (
     <>
-      <section className="page-heading"><div><p className="eyebrow">����� ���������</p><h1>����</h1><p className="muted">�������� �� ���� ��� ������, ����������� ���� ��� ��������� ��������.</p></div><button className="outline-button" onClick={onAddField}>+ �������� ����</button></section>
+      <section className="page-heading"><div><p className="eyebrow">КАРТА ХОЗЯЙСТВА</p><h1>Поля</h1><p className="muted">Кликните по полю для выбора, переключите слой для просмотра индексов.</p></div><button className="outline-button" onClick={onAddField}>＋ Добавить поле</button></section>
       <div className="map-card panel" style={{ marginBottom: 15 }}>
         <div className="panel-header">
-          <div><h2>����� �����</h2><p>{fieldRecords.length} ����� � ������.����� � {layer}</p></div>
+          <div><h2>Карта полей</h2><p>{fieldRecords.length} полей · Яндекс.Карты · {layer}</p></div>
           <div className="map-actions">
-            <button className="small-icon" onClick={() => onOpenFieldEditor(selectedField.name)} aria-label="�������������">?</button>
+            <button className="small-icon" onClick={() => onOpenFieldEditor(selectedField.name)} aria-label="Редактировать">✎</button>
           </div>
         </div>
         <div className="map-stage" style={{ minHeight: 420 }}>
@@ -615,20 +615,20 @@ function FieldsSection({ selectedField, fieldRecords, layer, setLayer, userLocat
             fieldPoints={fieldRecords.map((f) => f.coordinates)} fieldAreas={fieldRecords.map((f) => f.areaHa)}
             fieldBoundaries={fieldRecords.map((f) => f.boundary)} activeLayer={layer}
             fieldNdvi={fieldRecords.map((f) => sentinelIndices[f.name]?.ndvi ?? (fieldRecords.indexOf(f) * 0.08 + 0.52))} fieldNdwi={fieldRecords.map((f) => sentinelIndices[f.name]?.ndwi ?? (fieldRecords.indexOf(f) * 0.06 + 0.31))} />
-          <div className="layer-switcher">{['NDVI', 'NDWI', 'EVI', '�������� ����'].map((item) => <button key={item} className={layer === item ? 'selected' : ''} onClick={() => setLayer(item)}>{item}</button>)}</div>
+          <div className="layer-switcher">{['NDVI', 'NDWI', 'EVI', 'Истинный цвет'].map((item) => <button key={item} className={layer === item ? 'selected' : ''} onClick={() => setLayer(item)}>{item}</button>)}</div>
           <LayerLegend layer={layer} />
         </div>
       </div>
       <section className="field-status panel">
-        <div className="panel-header"><div><h2>������ �����</h2><p>������� ������, ����� ������� ����</p></div><button className="text-button" onClick={onAddField}>+ ��������</button></div>
-        <div className="field-table-head"><span>����</span><span>�������</span><span>�������</span><span>�����������</span><span /></div>
+        <div className="panel-header"><div><h2>Список полей</h2><p>Нажмите строку, чтобы выбрать поле</p></div><button className="text-button" onClick={onAddField}>＋ Добавить</button></div>
+        <div className="field-table-head"><span>Поле</span><span>Площадь</span><span>Собрано</span><span>Урожайность</span><span /></div>
         {fieldRecords.map((f, i) => (
           <button key={`${f.name}-${i}`} className={f.name === selectedField.name ? 'field-table-row active' : 'field-table-row'} onClick={() => onSelectField(f.name)}>
-            <span className="field-name"><i className={f.yieldPerHa >= 2.2 ? 'field-health healthy' : 'field-health watch'} />{f.name}<small>{f.crop} � {f.sowingDate}</small></span>
-            <span>{f.areaHa} ��</span>
-            <strong>{Number(f.harvestTotalT || 0).toLocaleString('ru-RU')} �</strong>
-            <span className={f.yieldPerHa >= 2.2 ? 'table-status healthy-text' : 'table-status watch-text'}>{f.yieldPerHa.toFixed(2)} �/��</span>
-            <span className="row-arrow" onClick={(e) => { e.stopPropagation(); onOpenFieldEditor(f.name) }}>?</span>
+            <span className="field-name"><i className={f.yieldPerHa >= 2.2 ? 'field-health healthy' : 'field-health watch'} />{f.name}<small>{f.crop} · {f.sowingDate}</small></span>
+            <span>{f.areaHa} га</span>
+            <strong>{Number(f.harvestTotalT || 0).toLocaleString('ru-RU')} т</strong>
+            <span className={f.yieldPerHa >= 2.2 ? 'table-status healthy-text' : 'table-status watch-text'}>{f.yieldPerHa.toFixed(2)} т/га</span>
+            <span className="row-arrow" onClick={(e) => { e.stopPropagation(); onOpenFieldEditor(f.name) }}>✎</span>
           </button>
         ))}
       </section>
@@ -636,9 +636,9 @@ function FieldsSection({ selectedField, fieldRecords, layer, setLayer, userLocat
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // ANALYTICS SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function AnalyticsSection({ selectedField, chartValues, chartPeriod, setChartPeriod, sentinelIndices, sentinelLoading, onRefreshSentinel }: { selectedField: FieldRecord; chartValues: number[]; chartPeriod: '30' | '90'; setChartPeriod: (p: '30' | '90') => void; sentinelIndices: Record<string, { ndvi: number; ndwi: number; evi: number; source: string }>; sentinelLoading: boolean; onRefreshSentinel: () => void }) {
   const [indexTab, setIndexTab] = useState<'NDVI' | 'NDWI' | 'EVI'>('NDVI')
   const [periodDays, setPeriodDays] = useState(30)
@@ -660,59 +660,59 @@ function AnalyticsSection({ selectedField, chartValues, chartPeriod, setChartPer
   return (
     <>
       <section className="page-heading">
-        <div><p className="eyebrow">����������� �������</p><h1>���������</h1><p className="muted">{selectedField.name} � {selectedField.crop} � {idxSource}</p></div>
-        <button className="outline-button" onClick={onRefreshSentinel} disabled={sentinelLoading}>{sentinelLoading ? '? ���������' : '? �������� �������'}</button>
+        <div><p className="eyebrow">СПУТНИКОВЫЕ ИНДЕКСЫ</p><h1>Аналитика</h1><p className="muted">{selectedField.name} · {selectedField.crop} · {idxSource}</p></div>
+        <button className="outline-button" onClick={onRefreshSentinel} disabled={sentinelLoading}>{sentinelLoading ? '⟳ Загрузка…' : '↻ Обновить индексы'}</button>
       </section>
 
       <div className="analytics-index-tabs">
         {(['NDVI', 'NDWI', 'EVI'] as const).map((t) => (
           <button key={t} className={indexTab === t ? 'index-tab active' : 'index-tab'} onClick={() => setIndexTab(t)}>{t}</button>
         ))}
-        <span className="index-date">������: {new Date().toLocaleDateString('ru-RU')} � {idxSource}</span>
+        <span className="index-date">Снимок: {new Date().toLocaleDateString('ru-RU')} · {idxSource}</span>
       </div>
 
       <div className="analytics-grid">
         <div className="panel analytics-main-card">
           <div className="panel-header">
-            <div><h2>{indexTab} � ��������</h2><p>{selectedField.name} � {selectedField.crop}</p></div>
-            <select value={periodDays} onChange={(e) => setPeriodDays(Number(e.target.value))} aria-label="������">
-              <option value={7}>7 ����</option>
-              <option value={30}>30 ����</option>
-              <option value={90}>90 ����</option>
+            <div><h2>{indexTab} — динамика</h2><p>{selectedField.name} · {selectedField.crop}</p></div>
+            <select value={periodDays} onChange={(e) => setPeriodDays(Number(e.target.value))} aria-label="Период">
+              <option value={7}>7 дней</option>
+              <option value={30}>30 дней</option>
+              <option value={90}>90 дней</option>
             </select>
           </div>
           <div className="analytics-chart-summary">
-            <div className="analytics-metric"><span>�������</span><strong style={{ color: indexColors[indexTab] }}>{cur.current.toFixed(3)}</strong></div>
-            <div className="analytics-metric"><span>���������</span><strong className={cur.change >= 0 ? 'positive' : 'negative'}>{cur.change >= 0 ? '+' : ''}{cur.change.toFixed(3)}</strong></div>
-            <div className="analytics-metric"><span>�������</span><strong>{cur.min.toFixed(3)}</strong></div>
-            <div className="analytics-metric"><span>��������</span><strong>{cur.max.toFixed(3)}</strong></div>
-            <div className="analytics-metric"><span>�������</span><strong>{cur.avg.toFixed(3)}</strong></div>
+            <div className="analytics-metric"><span>Текущее</span><strong style={{ color: indexColors[indexTab] }}>{cur.current.toFixed(3)}</strong></div>
+            <div className="analytics-metric"><span>Изменение</span><strong className={cur.change >= 0 ? 'positive' : 'negative'}>{cur.change >= 0 ? '+' : ''}{cur.change.toFixed(3)}</strong></div>
+            <div className="analytics-metric"><span>Минимум</span><strong>{cur.min.toFixed(3)}</strong></div>
+            <div className="analytics-metric"><span>Максимум</span><strong>{cur.max.toFixed(3)}</strong></div>
+            <div className="analytics-metric"><span>Среднее</span><strong>{cur.avg.toFixed(3)}</strong></div>
           </div>
           <div className="line-chart" style={{ margin: '11px 20px 0 48px' }}>
             <div className="chart-y"><span>1.0</span><span>0.75</span><span>0.50</span><span>0.25</span></div>
-            <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label={`�������� ${indexTab}`}>
+            <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label={`Динамика ${indexTab}`}>
               <defs><linearGradient id={`fill-${indexTab}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor={indexColors[indexTab]} stopOpacity=".35" /><stop offset="1" stopColor={indexColors[indexTab]} stopOpacity="0" /></linearGradient></defs>
               <path fill={`url(#fill-${indexTab})`} d={makeAreaPath(chartValues)} />
               <path fill="none" stroke={indexColors[indexTab]} strokeWidth="2.5" d={makeLinePath(chartValues)} style={{ vectorEffect: 'non-scaling-stroke' }} />
               {chartValues.map((v, i) => <circle key={i} cx={i * (700 / Math.max(chartValues.length - 1, 1))} cy={180 - v * 1.55} r="3" fill={indexColors[indexTab]} stroke="#fff" strokeWidth="1.5" style={{ transform: 'scale(.65)', transformOrigin: 'center' }} />)}
             </svg>
-            <div className="chart-x"><span>30 �� �����</span><span>22 �� �����</span><span>15 �� �����</span><span>7 �� �����</span><span>�������</span></div>
+            <div className="chart-x"><span>30 дн назад</span><span>22 дн назад</span><span>15 дн назад</span><span>7 дн назад</span><span>Сегодня</span></div>
           </div>
-          <p className="analytics-source">��������: {idxSource} � ����: {new Date().toLocaleDateString('ru-RU')} � �������� ������: �������</p>
+          <p className="analytics-source">Источник: {idxSource} · дата: {new Date().toLocaleDateString('ru-RU')} · Качество данных: хорошее</p>
         </div>
 
         <div className="panel analytics-side">
-          <div className="panel-header"><div><h2>��������� ����</h2><p>Crop Health Score</p></div></div>
+          <div className="panel-header"><div><h2>Состояние поля</h2><p>Crop Health Score</p></div></div>
           <CropHealthCard field={selectedField} ndvi={cur.current} ndwi={indexValues['NDWI'].current} />
 
-          <div className="panel-header" style={{ marginTop: 15 }}><div><h2>����� ������</h2><p>�� �������</p></div></div>
+          <div className="panel-header" style={{ marginTop: 15 }}><div><h2>Риски сезона</h2><p>По декадам</p></div></div>
           <RiskDecadesWidget />
         </div>
       </div>
 
       <section className="decision-grid" style={{ marginTop: 15 }}>
         <div className="panel">
-          <div className="panel-header"><div><h2>��������� �������</h2><p>�������������� ���� � {selectedField.crop}</p></div></div>
+          <div className="panel-header"><div><h2>Календарь решений</h2><p>Агрономические окна · {selectedField.crop}</p></div></div>
           <DecisionCalendarWidget field={selectedField} />
         </div>
         <YieldForecastPanel field={selectedField} />
@@ -721,27 +721,27 @@ function AnalyticsSection({ selectedField, chartValues, chartPeriod, setChartPer
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // WEATHER SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function WeatherSection({ weatherItems, weatherLoading, weatherSource, refreshWeather, selectedField }: { weatherItems: WeatherItem[]; weatherLoading: boolean; weatherSource: string; refreshWeather: () => void; selectedField: FieldRecord }) {
   return (
     <>
-      <section className="page-heading"><div><p className="eyebrow">������� ������</p><h1>������</h1><p className="muted">����������� ������� � {weatherSource}</p></div>
-        <button className="outline-button" onClick={refreshWeather} disabled={weatherLoading}>{weatherLoading ? '����������' : '? ��������'}</button>
+      <section className="page-heading"><div><p className="eyebrow">ПРОГНОЗ ПОГОДЫ</p><h1>Погода</h1><p className="muted">Акмолинская область · {weatherSource}</p></div>
+        <button className="outline-button" onClick={refreshWeather} disabled={weatherLoading}>{weatherLoading ? 'Обновление…' : '↻ Обновить'}</button>
       </section>
       <WeatherWidget weatherItems={weatherItems} weatherLoading={weatherLoading} weatherSource={weatherSource} refreshWeather={refreshWeather} />
       <section className="decision-grid" style={{ marginTop: 15 }}>
         <div className="risk-card panel">
-          <div className="panel-header"><div><h2>������������� �����</h2><p>������ ������ � {selectedField.name}</p></div></div>
+          <div className="panel-header"><div><h2>Климатические риски</h2><p>Полный список · {selectedField.name}</p></div></div>
           <FullRisksList />
         </div>
         <div className="task-card panel">
-          <div className="panel-header"><div><h2>�������� ��������������</h2><p>��������� 7 ����</p></div></div>
+          <div className="panel-header"><div><h2>Погодные предупреждения</h2><p>Следующие 7 дней</p></div></div>
           <div style={{ padding: '0 19px 14px' }}>
-            <div className="weather-alert"><span>?</span><div><b>���� ��� ������</b><small>����� ���� 20�23 �������� � ����������� ������� &lt; 20%</small></div></div>
-            <div className="weather-alert" style={{ background: '#f0f5e8', marginTop: 10 }}><span style={{ color: '#5c985a' }}>?</span><div><b style={{ color: '#4d7f4f' }}>��� ����������</b><small style={{ color: '#829a7d' }}>����������� ������ ����������� +12�C � ���������</small></div></div>
-            <div className="weather-alert" style={{ background: '#fff5de', marginTop: 10 }}><span>?</span><div><b>�������</b><small>����� 6�9 �/� ��� ��������� &lt;35% � ��������� ���� ��� ��������</small></div></div>
+            <div className="weather-alert"><span>◉</span><div><b>Окно для уборки</b><small>Сухое окно 20–23 сентября · вероятность осадков &lt; 20%</small></div></div>
+            <div className="weather-alert" style={{ background: '#f0f5e8', marginTop: 10 }}><span style={{ color: '#5c985a' }}>✓</span><div><b style={{ color: '#4d7f4f' }}>Без заморозков</b><small style={{ color: '#829a7d' }}>Минимальная ночная температура +12°C · безопасно</small></div></div>
+            <div className="weather-alert" style={{ background: '#fff5de', marginTop: 10 }}><span>⚠</span><div><b>Суховей</b><small>Ветер 6–9 м/с при влажности &lt;35% — умеренный риск для растений</small></div></div>
           </div>
         </div>
       </section>
@@ -749,9 +749,9 @@ function WeatherSection({ weatherItems, weatherLoading, weatherSource, refreshWe
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // OPERATIONS SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function OperationsSection({ selectedField, fieldRecords, onNavigate }: { selectedField: FieldRecord; fieldRecords: FieldRecord[]; onNavigate: (s: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>(() => {
     try { return JSON.parse(localStorage.getItem('smartagro-tasks') || '[]') as Task[] } catch { return [] }
@@ -766,12 +766,12 @@ function OperationsSection({ selectedField, fieldRecords, onNavigate }: { select
   const saveTask = async (task: Task) => {
     try {
       if (task.id.startsWith('local-')) {
-        const r = await fetch(api('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) })
+        const r = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) })
         const saved = await r.json()
         const updated = tasks.filter((t) => t.id !== task.id).concat({ ...task, id: saved.id || task.id })
         persistTasks(updated)
       } else {
-        await fetch(api(`/api/tasks/${task.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) })
+        await fetch(`/api/tasks/${task.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) })
         persistTasks(tasks.map((t) => t.id === task.id ? task : t))
       }
     } catch {
@@ -784,17 +784,17 @@ function OperationsSection({ selectedField, fieldRecords, onNavigate }: { select
     const task = tasks.find((t) => t.id === taskId)
     if (!task) return
     const newStatus = task.status === 'done' ? 'open' : 'done'
-    try { await fetch(api(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) }) } catch {}
+    try { await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) }) } catch {}
     persistTasks(tasks.map((t) => t.id === taskId ? { ...t, status: newStatus } : t))
   }
 
   const deleteTask = async (taskId: string) => {
-    try { await fetch(api(`/api/tasks/${taskId}`, { method: 'DELETE' }) } catch {}
+    try { await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' }) } catch {}
     persistTasks(tasks.filter((t) => t.id !== taskId))
   }
 
   useEffect(() => {
-    fetch(api('/api/tasks').then((r) => r.json()).then((items: Task[]) => {
+    fetch('/api/tasks').then((r) => r.json()).then((items: Task[]) => {
       if (Array.isArray(items) && items.length > 0) { setTasks(items); localStorage.setItem('smartagro-tasks', JSON.stringify(items)) }
     }).catch(() => {})
   }, [])
@@ -805,45 +805,45 @@ function OperationsSection({ selectedField, fieldRecords, onNavigate }: { select
   return (
     <>
       <section className="page-heading">
-        <div><p className="eyebrow">�������������� ������</p><h1>��������</h1><p className="muted">{openCount} �������� ����� � {tasks.length} �����</p></div>
-        <button className="outline-button" onClick={() => { setEditTask(null); setShowForm(true) }}>+ ����� ������</button>
+        <div><p className="eyebrow">АГРОНОМИЧЕСКИЕ ЗАДАЧИ</p><h1>Операции</h1><p className="muted">{openCount} открытых задач · {tasks.length} всего</p></div>
+        <button className="outline-button" onClick={() => { setEditTask(null); setShowForm(true) }}>＋ Новая задача</button>
       </section>
 
       <div className="ops-filters panel" style={{ marginBottom: 15 }}>
-        <label>����:
+        <label>Поле:
           <select value={filterField} onChange={(e) => setFilterField(e.target.value)}>
-            <option value="all">��� ����</option>
+            <option value="all">Все поля</option>
             {fieldRecords.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
           </select>
         </label>
-        <label>������:
+        <label>Статус:
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="all">���</option>
-            <option value="open">��������</option>
-            <option value="done">�����������</option>
+            <option value="all">Все</option>
+            <option value="open">Открытые</option>
+            <option value="done">Выполненные</option>
           </select>
         </label>
       </div>
 
       <div className="panel" style={{ marginBottom: 15 }}>
-        {filtered.length === 0 && <div className="ops-empty">��� ����� �� ��������� ��������. <button className="text-button" onClick={() => { setEditTask(null); setShowForm(true) }}>������� ������ ></button></div>}
+        {filtered.length === 0 && <div className="ops-empty">Нет задач по выбранным фильтрам. <button className="text-button" onClick={() => { setEditTask(null); setShowForm(true) }}>Создать задачу →</button></div>}
         {filtered.map((t) => (
           <div key={t.id} className={t.status === 'done' ? 'ops-task-row done' : 'ops-task-row'}>
-            <button className={t.status === 'done' ? 'check-button checked' : 'check-button'} onClick={() => toggleStatus(t.id)} aria-label="�������� ������">{t.status === 'done' ? '?' : ''}</button>
+            <button className={t.status === 'done' ? 'check-button checked' : 'check-button'} onClick={() => toggleStatus(t.id)} aria-label="Изменить статус">{t.status === 'done' ? '✓' : ''}</button>
             <div className="ops-task-body">
               <b>{t.title}</b>
-              <small>{t.fieldName}{t.dueDate ? ` � �� ${new Date(t.dueDate).toLocaleDateString('ru-RU')}` : ''}{t.assignee ? ` � ${t.assignee}` : ''}</small>
+              <small>{t.fieldName}{t.dueDate ? ` · до ${new Date(t.dueDate).toLocaleDateString('ru-RU')}` : ''}{t.assignee ? ` · ${t.assignee}` : ''}</small>
               {t.note && <span className="ops-note">{t.note}</span>}
             </div>
-            <span className={`priority-badge ${t.priority}`}>{t.priority === 'high' ? '�����' : t.priority === 'medium' ? '�������' : '������'}</span>
-            <button className="ops-edit-btn" onClick={() => { setEditTask(t); setShowForm(true) }} aria-label="�������������">?</button>
-            <button className="ops-delete-btn" onClick={() => deleteTask(t.id)} aria-label="�������">?</button>
+            <span className={`priority-badge ${t.priority}`}>{t.priority === 'high' ? 'Важно' : t.priority === 'medium' ? 'Средний' : 'Низкий'}</span>
+            <button className="ops-edit-btn" onClick={() => { setEditTask(t); setShowForm(true) }} aria-label="Редактировать">✎</button>
+            <button className="ops-delete-btn" onClick={() => deleteTask(t.id)} aria-label="Удалить">×</button>
           </div>
         ))}
       </div>
 
       <DecisionCalendarWidget field={selectedField} onCreateTask={(title) => {
-        const newTask: Task = { id: `local-${Date.now()}`, title, fieldName: selectedField.name, priority: 'medium', dueDate: null, assignee: '', note: '�� ��������� �������', status: 'open' }
+        const newTask: Task = { id: `local-${Date.now()}`, title, fieldName: selectedField.name, priority: 'medium', dueDate: null, assignee: '', note: 'Из календаря решений', status: 'open' }
         saveTask(newTask)
       }} />
 
@@ -852,9 +852,9 @@ function OperationsSection({ selectedField, fieldRecords, onNavigate }: { select
   )
 }
 
-// ==============================================================================
-// REPORT SECTION � HTML print + txt download
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
+// REPORT SECTION — HTML print + txt download
+// ══════════════════════════════════════════════════════════════════════════════
 function ReportSection({ company, fields, selectedField, economics, weatherItems, sentinelIndices }: { company: string; fields: FieldRecord[]; selectedField: FieldRecord; economics: any; weatherItems: WeatherItem[]; sentinelIndices: Record<string, { ndvi: number; ndwi: number; evi: number; source: string }> }) {
   const now = new Date()
   const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -869,7 +869,7 @@ function ReportSection({ company, fields, selectedField, economics, weatherItems
 <html lang="ru">
 <head>
 <meta charset="utf-8"/>
-<title>SmartAgro � ${selectedField.name} � ${dateStr}</title>
+<title>SmartAgro — ${selectedField.name} — ${dateStr}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Arial',sans-serif;font-size:12px;color:#1a2e22;background:#fff;padding:20mm 18mm}
@@ -916,79 +916,79 @@ function ReportSection({ company, fields, selectedField, economics, weatherItems
 <body>
 <div class="header">
   <div>
-    <div class="logo">? smart<span>agro</span></div>
-    <div style="color:#6a8070;font-size:11px;margin-top:4px">AI Advisor � �������������� �����</div>
+    <div class="logo">✦ smart<span>agro</span></div>
+    <div style="color:#6a8070;font-size:11px;margin-top:4px">AI Advisor — Агрономический отчёт</div>
   </div>
   <div class="meta">
     <div><b>${company}</b></div>
-    <div>����: ${selectedField.name}</div>
+    <div>Поле: ${selectedField.name}</div>
     <div>${dateStr}</div>
-    <div>����������� �������</div>
+    <div>Акмолинская область</div>
   </div>
 </div>
 
-<h1>${selectedField.name} � ${selectedField.crop}</h1>
-<p style="color:#6a8070;font-size:11px;margin-bottom:20px">���: ${selectedField.sowingDate} � �������: ${selectedField.areaHa} �� � �������: ${selectedField.plantedAreaHa} ��</p>
+<h1>${selectedField.name} — ${selectedField.crop}</h1>
+<p style="color:#6a8070;font-size:11px;margin-bottom:20px">Сев: ${selectedField.sowingDate} · Площадь: ${selectedField.areaHa} га · Посеяно: ${selectedField.plantedAreaHa} га</p>
 
 <div class="idx-grid">
-  <div class="idx-card"><div class="idx-val" style="color:#1a9850">${ndvi.toFixed(3)}</div><div class="idx-label">NDVI � ��������������</div></div>
-  <div class="idx-card"><div class="idx-val" style="color:#2c7bb6">${ndwi.toFixed(3)}</div><div class="idx-label">NDWI � ���������</div></div>
-  <div class="idx-card"><div class="idx-val" style="color:#9c6bab">${evi.toFixed(3)}</div><div class="idx-label">EVI � �����. ������</div></div>
+  <div class="idx-card"><div class="idx-val" style="color:#1a9850">${ndvi.toFixed(3)}</div><div class="idx-label">NDVI — растительность</div></div>
+  <div class="idx-card"><div class="idx-val" style="color:#2c7bb6">${ndwi.toFixed(3)}</div><div class="idx-label">NDWI — влажность</div></div>
+  <div class="idx-card"><div class="idx-val" style="color:#9c6bab">${evi.toFixed(3)}</div><div class="idx-label">EVI — улучш. индекс</div></div>
 </div>
-<p style="color:#9aa79d;font-size:9px;margin-bottom:16px">�������� ��������: ${idxSource} � ${now.toLocaleDateString('ru-RU')}</p>
+<p style="color:#9aa79d;font-size:9px;margin-bottom:16px">Источник индексов: ${idxSource} · ${now.toLocaleDateString('ru-RU')}</p>
 
-<h2>������� �����������</h2>
+<h2>Прогноз урожайности</h2>
 <div class="scenario-grid">
-  <div class="scenario"><small>���������������</small><b>${(selectedField.yieldForecastT * 0.8).toFixed(2)} �/��</b><small>${Math.round(selectedField.yieldForecastT * 0.8 * selectedField.areaHa)} �</small></div>
-  <div class="scenario base"><small>�������</small><b>${selectedField.yieldForecastT.toFixed(2)} �/��</b><small>${Math.round(selectedField.yieldForecastT * selectedField.areaHa)} �</small></div>
-  <div class="scenario"><small>�������������</small><b>${(selectedField.yieldForecastT * 1.15).toFixed(2)} �/��</b><small>${Math.round(selectedField.yieldForecastT * 1.15 * selectedField.areaHa)} �</small></div>
+  <div class="scenario"><small>Неблагоприятный</small><b>${(selectedField.yieldForecastT * 0.8).toFixed(2)} т/га</b><small>${Math.round(selectedField.yieldForecastT * 0.8 * selectedField.areaHa)} т</small></div>
+  <div class="scenario base"><small>Базовый</small><b>${selectedField.yieldForecastT.toFixed(2)} т/га</b><small>${Math.round(selectedField.yieldForecastT * selectedField.areaHa)} т</small></div>
+  <div class="scenario"><small>Благоприятный</small><b>${(selectedField.yieldForecastT * 1.15).toFixed(2)} т/га</b><small>${Math.round(selectedField.yieldForecastT * 1.15 * selectedField.areaHa)} т</small></div>
 </div>
-<p style="color:#c0503c;font-size:9px;margin-bottom:16px">? ������� �������� ����������, �� ��������� ������. ������������� �������� 80%: ${(selectedField.yieldForecastT - 0.18).toFixed(2)} � ${(selectedField.yieldForecastT + 0.18).toFixed(2)} �/��</p>
+<p style="color:#c0503c;font-size:9px;margin-bottom:16px">⚠ Прогноз является ориентиром, не гарантией урожая. Доверительный интервал 80%: ${(selectedField.yieldForecastT - 0.18).toFixed(2)} – ${(selectedField.yieldForecastT + 0.18).toFixed(2)} т/га</p>
 
-<h2>��������� ����</h2>
+<h2>Экономика поля</h2>
 <div class="grid2">
   <div class="card">
-    <div class="card-title">����������</div>
-    <div class="row"><span>��������� �������</span><b>${Math.round(economics.revenue).toLocaleString('ru-RU')} ?</b></div>
-    <div class="row"><span>������ �������</span><b>${Math.round(economics.directCosts).toLocaleString('ru-RU')} ?</b></div>
-    <div class="row"><span>�����</span><b style="color:${economics.margin >= 0 ? '#1a9850' : '#c0503c'}">${Math.round(economics.margin).toLocaleString('ru-RU')} ?</b></div>
-    <div class="row"><span>�����/��</span><b>${Math.round(economics.marginPerHa).toLocaleString('ru-RU')} ?/��</b></div>
-    <div class="row"><span>�������/��</span><b>${Math.round(economics.costsPerHa).toLocaleString('ru-RU')} ?/��</b></div>
+    <div class="card-title">Результаты</div>
+    <div class="row"><span>Ожидаемая выручка</span><b>${Math.round(economics.revenue).toLocaleString('ru-RU')} ₸</b></div>
+    <div class="row"><span>Прямые расходы</span><b>${Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸</b></div>
+    <div class="row"><span>Маржа</span><b style="color:${economics.margin >= 0 ? '#1a9850' : '#c0503c'}">${Math.round(economics.margin).toLocaleString('ru-RU')} ₸</b></div>
+    <div class="row"><span>Маржа/га</span><b>${Math.round(economics.marginPerHa).toLocaleString('ru-RU')} ₸/га</b></div>
+    <div class="row"><span>Расходы/га</span><b>${Math.round(economics.costsPerHa).toLocaleString('ru-RU')} ₸/га</b></div>
   </div>
   <div class="card">
-    <div class="card-title">���������</div>
-    <div class="row"><span>�������</span><b>${selectedField.yieldForecastT.toFixed(2)} �/��</b></div>
-    <div class="row"><span>�������</span><b>${selectedField.areaHa} ��</b></div>
-    <div class="row"><span>��������� ����</span><b>${economics.expectedHarvest.toFixed(1)} �</b></div>
-    <div class="row"><span>���� ����������</span><b>${selectedField.grainPricePerT.toLocaleString('ru-RU')} ?/�</b></div>
-    <div class="row"><span>���� �������</span><b>${selectedField.fuelPricePerL} ?/�</b></div>
+    <div class="card-title">Параметры</div>
+    <div class="row"><span>Прогноз</span><b>${selectedField.yieldForecastT.toFixed(2)} т/га</b></div>
+    <div class="row"><span>Площадь</span><b>${selectedField.areaHa} га</b></div>
+    <div class="row"><span>Ожидаемый сбор</span><b>${economics.expectedHarvest.toFixed(1)} т</b></div>
+    <div class="row"><span>Цена реализации</span><b>${selectedField.grainPricePerT.toLocaleString('ru-RU')} ₸/т</b></div>
+    <div class="row"><span>Цена топлива</span><b>${selectedField.fuelPricePerL} ₸/л</b></div>
   </div>
 </div>
 
-<h2>������������� �����</h2>
-${[['������', 28, 'green'], ['�������', 41, 'amber'], ['������� �������', 33, 'green'], ['������������� ����', 19, 'green'], ['���������', 5, 'green'], ['������ ����', 12, 'green'], ['������� ���� ������', 24, 'green']].map(([name, score, color]) => `
+<h2>Климатические риски</h2>
+${[['Засуха', 28, 'green'], ['Суховей', 41, 'amber'], ['Дефицит осадков', 33, 'green'], ['Экстремальная жара', 19, 'green'], ['Заморозок', 5, 'green'], ['Ранний снег', 12, 'green'], ['Влажное окно уборки', 24, 'green']].map(([name, score, color]) => `
   <div class="risk-row">
     <span style="width:160px;font-size:10px">${name}</span>
     <div class="risk-bar"><div class="risk-fill-${color}" style="width:${score}%"></div></div>
     <b style="width:40px;text-align:right;font-size:11px">${score}<span style="color:#9aa79d;font-size:8px">/100</span></b>
-    <span class="badge badge-${color}" style="margin-left:8px">${Number(score) >= 60 ? '�������' : Number(score) >= 35 ? '���������' : '������'} ����</span>
+    <span class="badge badge-${color}" style="margin-left:8px">${Number(score) >= 60 ? 'Высокий' : Number(score) >= 35 ? 'Умеренный' : 'Низкий'} риск</span>
   </div>`).join('')}
 
-<h2>������� ������</h2>
+<h2>Прогноз погоды</h2>
 <div class="weather-row">
   ${weatherItems.slice(0, 7).map((w) => `<div class="weather-cell"><small>${w.day}</small><b>${w.icon}</b><strong>${w.temp}</strong><small>${w.rain}</small></div>`).join('')}
 </div>
 
-<h2>��� ���� ���������</h2>
+<h2>Все поля хозяйства</h2>
 <table class="fields-table">
-  <tr><th>����</th><th>��������</th><th>�������</th><th>���</th><th>�����������</th><th>�������</th></tr>
-  ${fields.map((f) => `<tr><td>${f.name}</td><td>${f.crop}</td><td>${f.areaHa} ��</td><td>${f.sowingDate}</td><td>${f.yieldPerHa.toFixed(2)} �/��</td><td>${f.yieldForecastT.toFixed(2)} �/��</td></tr>`).join('')}
+  <tr><th>Поле</th><th>Культура</th><th>Площадь</th><th>Сев</th><th>Урожайность</th><th>Прогноз</th></tr>
+  ${fields.map((f) => `<tr><td>${f.name}</td><td>${f.crop}</td><td>${f.areaHa} га</td><td>${f.sowingDate}</td><td>${f.yieldPerHa.toFixed(2)} т/га</td><td>${f.yieldForecastT.toFixed(2)} т/га</td></tr>`).join('')}
 </table>
 
 <div class="footer">
-  <span>SmartAgro AI Advisor � v1.0.0 � ${dateStr}</span>
-  <span>���������: ${idxSource} � Open-Meteo � ������� ����������� �������</span>
-  <span>�� �������� ���������� ��� ��������� ����������</span>
+  <span>SmartAgro AI Advisor · v1.0.0 · ${dateStr}</span>
+  <span>Источники: ${idxSource} · Open-Meteo · правила Акмолинской области</span>
+  <span>Не является финансовым или страховым документом</span>
 </div>
 </body></html>`
 
@@ -1002,21 +1002,21 @@ ${[['������', 28, 'green'], ['�������', 41, 'amber'], 
 
   const downloadTxt = () => {
     const lines = [
-      `SmartAgro AI Advisor � �����`, `����: ${dateStr}`, `���������: ${company}`, '',
+      `SmartAgro AI Advisor — Отчёт`, `Дата: ${dateStr}`, `Хозяйство: ${company}`, '',
       `=== ${selectedField.name} ===`,
-      `��������: ${selectedField.crop} � �������: ${selectedField.areaHa} �� � ���: ${selectedField.sowingDate}`,
-      `����������� ����: ${selectedField.yieldPerHa.toFixed(2)} �/�� � �������: ${selectedField.yieldForecastT.toFixed(2)} �/��`,
-      `NDVI: ${ndvi.toFixed(3)} � NDWI: ${ndwi.toFixed(3)} � EVI: ${evi.toFixed(3)} � ${idxSource}`, '',
-      `=== ��������� ===`,
-      `�������: ${Math.round(economics.revenue).toLocaleString('ru-RU')} ? � �������: ${Math.round(economics.directCosts).toLocaleString('ru-RU')} ? � �����: ${Math.round(economics.margin).toLocaleString('ru-RU')} ?`, '',
-      `=== ����� ===`,
-      `������: 28 � �������: 41 � ������� �������: 33 � ������ ����: 12 � ����: 19`, '',
-      `=== ������ ===`,
+      `Культура: ${selectedField.crop} · Площадь: ${selectedField.areaHa} га · Сев: ${selectedField.sowingDate}`,
+      `Урожайность факт: ${selectedField.yieldPerHa.toFixed(2)} т/га · Прогноз: ${selectedField.yieldForecastT.toFixed(2)} т/га`,
+      `NDVI: ${ndvi.toFixed(3)} · NDWI: ${ndwi.toFixed(3)} · EVI: ${evi.toFixed(3)} · ${idxSource}`, '',
+      `=== ЭКОНОМИКА ===`,
+      `Выручка: ${Math.round(economics.revenue).toLocaleString('ru-RU')} ₸ · Расходы: ${Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸ · Маржа: ${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`, '',
+      `=== РИСКИ ===`,
+      `Засуха: 28 · Суховей: 41 · Дефицит осадков: 33 · Ранний снег: 12 · Жара: 19`, '',
+      `=== ПОГОДА ===`,
       ...weatherItems.map((w) => `${w.day}: ${w.temp}/${w.night}, ${w.rain}, ${w.wind}`), '',
-      `=== ��� ���� ===`,
-      ...fields.map((f) => `${f.name}: ${f.crop}, ${f.areaHa} ��, ${f.yieldPerHa.toFixed(2)} �/��`), '',
-      `���������: ${idxSource} � Open-Meteo � �������������� �����`,
-      `������� � ��������, �� �������� ������.`,
+      `=== ВСЕ ПОЛЯ ===`,
+      ...fields.map((f) => `${f.name}: ${f.crop}, ${f.areaHa} га, ${f.yieldPerHa.toFixed(2)} т/га`), '',
+      `Источники: ${idxSource} · Open-Meteo · агрономические нормы`,
+      `Прогноз — ориентир, не гарантия урожая.`,
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -1028,55 +1028,55 @@ ${[['������', 28, 'green'], ['�������', 41, 'amber'], 
   return (
     <>
       <section className="page-heading">
-        <div><p className="eyebrow">�������</p><h1>�����</h1><p className="muted">������ �� ���� � ��������� � {company}</p></div>
+        <div><p className="eyebrow">ЭКСПОРТ</p><h1>Отчёт</h1><p className="muted">Сводка по полю и хозяйству · {company}</p></div>
         <div className="heading-actions">
-          <button className="outline-button" onClick={downloadTxt}>v .txt</button>
-          <button className="outline-button" onClick={printReport}>? HTML / PDF</button>
+          <button className="outline-button" onClick={downloadTxt}>↓ .txt</button>
+          <button className="outline-button" onClick={printReport}>⎙ HTML / PDF</button>
         </div>
       </section>
 
       <div className="panel report-page-panel">
-        <div className="panel-header"><div><h2>������������</h2><p>{company} � {selectedField.name} � {dateStr}</p></div></div>
+        <div className="panel-header"><div><h2>Предпросмотр</h2><p>{company} · {selectedField.name} · {dateStr}</p></div></div>
         <div className="report-preview-page">
           <div className="report-block">
-            <b>{selectedField.name} � {selectedField.crop}</b>
-            <span>{selectedField.areaHa} �� � ��� {selectedField.sowingDate}</span>
-            <span>�����������: {selectedField.yieldPerHa.toFixed(2)} �/�� � �������: {selectedField.yieldForecastT.toFixed(2)} �/��</span>
-            <span>NDVI: {ndvi.toFixed(3)} � NDWI: {ndwi.toFixed(3)} � EVI: {evi.toFixed(3)}</span>
-            <span style={{ color: '#9aa79d', fontSize: 10 }}>��������: {idxSource}</span>
+            <b>{selectedField.name} — {selectedField.crop}</b>
+            <span>{selectedField.areaHa} га · сев {selectedField.sowingDate}</span>
+            <span>Урожайность: {selectedField.yieldPerHa.toFixed(2)} т/га · Прогноз: {selectedField.yieldForecastT.toFixed(2)} т/га</span>
+            <span>NDVI: {ndvi.toFixed(3)} · NDWI: {ndwi.toFixed(3)} · EVI: {evi.toFixed(3)}</span>
+            <span style={{ color: '#9aa79d', fontSize: 10 }}>Источник: {idxSource}</span>
           </div>
           <div className="report-block">
-            <b>���������</b>
-            <span>�������: {Math.round(economics.revenue).toLocaleString('ru-RU')} ?</span>
-            <span>�������: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ?</span>
-            <span>�����: <b style={{ color: economics.margin >= 0 ? '#1a9850' : '#c0503c' }}>{Math.round(economics.margin).toLocaleString('ru-RU')} ?</b></span>
-            <span>�������/��: {Math.round(economics.costsPerHa).toLocaleString('ru-RU')} ?/��</span>
+            <b>Экономика</b>
+            <span>Выручка: {Math.round(economics.revenue).toLocaleString('ru-RU')} ₸</span>
+            <span>Расходы: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸</span>
+            <span>Маржа: <b style={{ color: economics.margin >= 0 ? '#1a9850' : '#c0503c' }}>{Math.round(economics.margin).toLocaleString('ru-RU')} ₸</b></span>
+            <span>Расходы/га: {Math.round(economics.costsPerHa).toLocaleString('ru-RU')} ₸/га</span>
           </div>
           <div className="report-block">
-            <b>������������� �����</b>
-            <span>������: 28/100 � ������</span>
-            <span>�������: 41/100 � ���������</span>
-            <span>������� �������: 33/100</span>
-            <span>������ ����: 12/100</span>
+            <b>Климатические риски</b>
+            <span>Засуха: 28/100 · Низкий</span>
+            <span>Суховей: 41/100 · Умеренный</span>
+            <span>Дефицит осадков: 33/100</span>
+            <span>Ранний снег: 12/100</span>
           </div>
           <div className="report-block">
-            <b>������ � 7 ����</b>
+            <b>Погода · 7 дней</b>
             {weatherItems.slice(0, 4).map((w) => <span key={w.day}>{w.day}: {w.temp}/{w.night}, {w.rain}</span>)}
           </div>
         </div>
         <div style={{ padding: '14px 19px', display: 'flex', gap: 10 }}>
-          <button className="outline-button" onClick={downloadTxt}>v ������� .txt</button>
-          <button className="dark-button" onClick={printReport} style={{ flex: 1 }}>? ������� HTML-����� / ����������� PDF <span>></span></button>
+          <button className="outline-button" onClick={downloadTxt}>↓ Скачать .txt</button>
+          <button className="dark-button" onClick={printReport} style={{ flex: 1 }}>⎙ Открыть HTML-отчёт / Распечатать PDF <span>→</span></button>
         </div>
-        <p style={{ padding: '0 19px 14px', color: '#94a596', fontSize: 11 }}>������ �HTML / PDF� ��������� ������� ����� � ����� �������. ��� ���������� PDF ����������� ������� > ��������� ��� PDF� � ��������.</p>
+        <p style={{ padding: '0 19px 14px', color: '#94a596', fontSize: 11 }}>Кнопка «HTML / PDF» открывает готовый отчёт в новой вкладке. Для сохранения PDF используйте «Печать → Сохранить как PDF» в браузере.</p>
       </div>
     </>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // MULTI-FIELD COMPARISON SECTION
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 
 function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onRefresh, userLocation, layer, setLayer }: {
   fieldRecords: FieldRecord[]; sentinelIndices: SentinelMap; sentinelLoading: boolean
@@ -1110,20 +1110,20 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
   return (
     <>
       <section className="page-heading">
-        <div><p className="eyebrow">������������� ��������</p><h1>��������� �����</h1><p className="muted">{fieldRecords.length} ����� � ������� {selectedFields.length}</p></div>
+        <div><p className="eyebrow">МУЛЬТИПОЛЬНЫЙ ПРОСМОТР</p><h1>Сравнение полей</h1><p className="muted">{fieldRecords.length} полей · выбрано {selectedFields.length}</p></div>
         <div className="heading-actions">
-          <button className="outline-button" onClick={onRefresh} disabled={sentinelLoading}>{sentinelLoading ? '? ���������' : '? �������� �������'}</button>
+          <button className="outline-button" onClick={onRefresh} disabled={sentinelLoading}>{sentinelLoading ? '⟳ Загрузка…' : '↻ Обновить индексы'}</button>
         </div>
       </section>
 
       {/* Field selector */}
       <div className="panel multifield-selector">
-        <div className="panel-header"><div><h2>�������� ���� ��� ���������</h2><p>������� �� ����, ����� ��������/��������� ���</p></div></div>
+        <div className="panel-header"><div><h2>Выберите поля для сравнения</h2><p>Нажмите на поле, чтобы включить/выключить его</p></div></div>
         <div className="multifield-chips">
           {fieldRecords.map((f) => (
             <button key={f.name} className={selectedFields.includes(f.name) ? 'field-chip active' : 'field-chip'} onClick={() => toggle(f.name)}>
               <span className="chip-dot" style={{ background: getCropColor(f.crop) }} />
-              {f.name} � {f.crop}
+              {f.name} · {f.crop}
             </button>
           ))}
         </div>
@@ -1132,10 +1132,10 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
       {/* Map of selected fields */}
       <div className="map-card panel" style={{ marginBottom: 15 }}>
         <div className="panel-header">
-          <div><h2>����� ���������</h2><p>{selectedFields.length} ����� � ���� {layer}</p></div>
+          <div><h2>Карта сравнения</h2><p>{selectedFields.length} полей · слой {layer}</p></div>
           <div className="map-actions">
             <div className="layer-switcher" style={{ position: 'static', background: 'transparent', boxShadow: 'none' }}>
-              {['NDVI', 'NDWI', 'EVI', '�������� ����'].map((item) => (
+              {['NDVI', 'NDWI', 'EVI', 'Истинный цвет'].map((item) => (
                 <button key={item} className={layer === item ? 'selected' : ''} onClick={() => setLayer(item)}>{item}</button>
               ))}
             </div>
@@ -1156,22 +1156,22 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
       {/* Comparison table */}
       <div className="panel" style={{ marginBottom: 15, overflow: 'hidden' }}>
         <div className="panel-header">
-          <div><h2>������������� �������</h2><p>���������� ��</p></div>
-          <select className="chart-card select" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} aria-label="����������">
-            <option value="ndvi">NDVI v</option>
-            <option value="ndwi">NDWI v</option>
-            <option value="yield">������� v</option>
-            <option value="margin">����� v</option>
-            <option value="name">��������</option>
+          <div><h2>Сравнительная таблица</h2><p>Сортировка по</p></div>
+          <select className="chart-card select" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} aria-label="Сортировка">
+            <option value="ndvi">NDVI ↓</option>
+            <option value="ndwi">NDWI ↓</option>
+            <option value="yield">Прогноз ↓</option>
+            <option value="margin">Маржа ↓</option>
+            <option value="name">Название</option>
           </select>
         </div>
         <div className="multifield-table-wrap">
           <table className="multifield-table">
             <thead>
               <tr>
-                <th>����</th><th>��������</th><th>��</th>
+                <th>Поле</th><th>Культура</th><th>Га</th>
                 <th>NDVI</th><th>NDWI</th><th>EVI</th>
-                <th>������� �/��</th><th>���� �/��</th><th>����� ?</th><th>��������</th>
+                <th>Прогноз т/га</th><th>Факт т/га</th><th>Маржа ₸</th><th>Источник</th>
               </tr>
             </thead>
             <tbody>
@@ -1204,7 +1204,7 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
                     </td>
                     <td>{f.yieldPerHa.toFixed(2)}</td>
                     <td className={margin >= 0 ? 'positive-cell' : 'negative-cell'}>{margin.toLocaleString('ru-RU')}</td>
-                    <td><span className={si?.source === 'sentinel-hub' ? 'source-badge live' : 'source-badge demo'}>{si?.source === 'sentinel-hub' ? '? Live' : '0 Demo'}</span></td>
+                    <td><span className={si?.source === 'sentinel-hub' ? 'source-badge live' : 'source-badge demo'}>{si?.source === 'sentinel-hub' ? '● Live' : '○ Demo'}</span></td>
                   </tr>
                 )
               })}
@@ -1226,7 +1226,7 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
           const max = Math.max(...vals, 0.01)
           return (
             <div key={idx} className="panel multifield-chart-card">
-              <div className="panel-header"><div><h2>{idx}</h2><p>��������� �� �����</p></div></div>
+              <div className="panel-header"><div><h2>{idx}</h2><p>Сравнение по полям</p></div></div>
               <div className="mf-bars">
                 {displayed.map((f, i) => (
                   <div key={f.name} className="mf-bar-row">
@@ -1246,9 +1246,9 @@ function MultiFieldSection({ fieldRecords, sentinelIndices, sentinelLoading, onR
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // REUSABLE COMPONENTS
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 
 function KpiCard({ label, value, meta, icon, tone }: { label: string; value: string; meta: string; icon: string; tone: string }) {
   return <div className="kpi-card panel"><div className={`kpi-icon ${tone}`}>{icon}</div><div><p>{label}</p><strong>{value}</strong><small>{meta}</small></div></div>
@@ -1267,8 +1267,8 @@ function WeatherWidget({ weatherItems, weatherLoading, weatherSource, refreshWea
   return (
     <div className="weather-card panel">
       <div className="panel-header">
-        <div><h2>������</h2><p>����������� ������� � {weatherSource}</p></div>
-        <button className="weather-current weather-refresh" onClick={refreshWeather} disabled={weatherLoading}>{weatherLoading ? '����������' : '? ��������'}</button>
+        <div><h2>Погода</h2><p>Акмолинская область · {weatherSource}</p></div>
+        <button className="weather-current weather-refresh" onClick={refreshWeather} disabled={weatherLoading}>{weatherLoading ? 'Обновление…' : '↻ Обновить'}</button>
       </div>
       <div className={compact ? 'weather-list' : 'weather-list weather-list-full'}>
         {weatherItems.slice(0, compact ? 6 : 7).map((item, i) => (
@@ -1280,16 +1280,16 @@ function WeatherWidget({ weatherItems, weatherLoading, weatherSource, refreshWea
           </div>
         ))}
       </div>
-      <div className="weather-alert"><span>?</span><div><b>���� ��� ������</b><small>������ ����������� �� ����������� ��������� � Open-Meteo API</small></div></div>
+      <div className="weather-alert"><span>◉</span><div><b>Окно для уборки</b><small>Данные обновляются по координатам хозяйства · Open-Meteo API</small></div></div>
     </div>
   )
 }
 
 function LocationNotice({ status, onRequest }: { status: 'idle' | 'loading' | 'ready' | 'denied'; onRequest: () => void }) {
-  if (status === 'ready') return <div className="location-notice ready-location"><span>?</span><div><b>�������������� ��������</b><small>����� ������������ ����� � ����.</small></div></div>
+  if (status === 'ready') return <div className="location-notice ready-location"><span>⌖</span><div><b>Местоположение получено</b><small>Карта центрирована рядом с вами.</small></div></div>
   return (
-    <div className="location-notice"><span>?</span><div><b>{status === 'loading' ? '���������� ��������������' : '�������� �������������� ���������'}</b><small>{status === 'denied' ? '������ ��������. ��������� ���������� � ��������.' : '��� ������� ������ ����� ���� ����� � ����� ����������.'}</small></div>
-      {status !== 'loading' && <button className="text-button" onClick={onRequest}>���������� ></button>}
+    <div className="location-notice"><span>⌖</span><div><b>{status === 'loading' ? 'Определяем местоположение…' : 'Уточните местоположение хозяйства'}</b><small>{status === 'denied' ? 'Доступ запрещен. Разрешите геолокацию в браузере.' : 'Это поможет точнее найти поля рядом с вашим хозяйством.'}</small></div>
+      {status !== 'loading' && <button className="text-button" onClick={onRequest}>Определить →</button>}
     </div>
   )
 }
@@ -1303,20 +1303,20 @@ function QuickTaskList({ fieldName }: { fieldName: string }) {
     setTasks(updated)
     const all = JSON.parse(localStorage.getItem('smartagro-tasks') || '[]') as Task[]
     localStorage.setItem('smartagro-tasks', JSON.stringify(all.map((t) => t.id === id ? { ...t, status: 'done' } : t)))
-    fetch(api(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) }).catch(() => {})
+    fetch(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) }).catch(() => {})
   }
   const defaultTasks: Task[] = [
-    { id: 'demo-1', title: '������ ���-��������� ����', fieldName, priority: 'high', dueDate: '2026-09-18', assignee: '', note: '', status: 'open' },
-    { id: 'demo-2', title: '����������� ��������� �������', fieldName, priority: 'medium', dueDate: '2026-09-20', assignee: '', note: '', status: 'open' },
+    { id: 'demo-1', title: 'Осмотр юго-восточной зоны', fieldName, priority: 'high', dueDate: '2026-09-18', assignee: '', note: '', status: 'open' },
+    { id: 'demo-2', title: 'Подготовить уборочную технику', fieldName, priority: 'medium', dueDate: '2026-09-20', assignee: '', note: '', status: 'open' },
   ]
   const display = tasks.length > 0 ? tasks : defaultTasks
   return (
     <>
       {display.map((t) => (
         <div key={t.id} className={t.status === 'done' ? 'task completed' : 'task'}>
-          <button className="check-button" onClick={() => toggle(t.id)} aria-label="�������� �����������">{t.status === 'done' ? '?' : ''}</button>
-          <div><b>{t.title}</b><small>{t.fieldName} � {t.dueDate ? `�� ${new Date(t.dueDate).toLocaleDateString('ru-RU')}` : '��� �����'}</small></div>
-          <span className={t.priority === 'high' ? 'priority' : 'ready'}>{t.priority === 'high' ? '�����' : '�������������'}</span>
+          <button className="check-button" onClick={() => toggle(t.id)} aria-label="Отметить выполненным">{t.status === 'done' ? '✓' : ''}</button>
+          <div><b>{t.title}</b><small>{t.fieldName} · {t.dueDate ? `до ${new Date(t.dueDate).toLocaleDateString('ru-RU')}` : 'без срока'}</small></div>
+          <span className={t.priority === 'high' ? 'priority' : 'ready'}>{t.priority === 'high' ? 'Важно' : 'Запланировано'}</span>
         </div>
       ))}
     </>
@@ -1333,30 +1333,30 @@ function CropHealthCard({ field, ndvi, ndwi }: { field: FieldRecord; ndvi: numbe
         <span style={{ color: scoreColor }}>{score}</span><small>/100</small>
       </div>
       <div className="health-metrics">
-        <div><span>NDVI</span><strong>{ndvi.toFixed(3)}</strong><em className={ndviChange >= 0 ? 'pos' : 'neg'}>{ndviChange >= 0 ? '^' : 'v'}{Math.abs(ndviChange).toFixed(3)}</em></div>
-        <div><span>NDWI</span><strong>{ndwi.toFixed(3)}</strong><em className="neg">v0.02</em></div>
-        <div><span>�������</span><strong>{field.areaHa} ��</strong></div>
-        <div><span>��������</span><strong>{field.crop}</strong></div>
+        <div><span>NDVI</span><strong>{ndvi.toFixed(3)}</strong><em className={ndviChange >= 0 ? 'pos' : 'neg'}>{ndviChange >= 0 ? '↑' : '↓'}{Math.abs(ndviChange).toFixed(3)}</em></div>
+        <div><span>NDWI</span><strong>{ndwi.toFixed(3)}</strong><em className="neg">↓0.02</em></div>
+        <div><span>Площадь</span><strong>{field.areaHa} га</strong></div>
+        <div><span>Культура</span><strong>{field.crop}</strong></div>
       </div>
-      <p className="health-note">������ = NDVI?0.6 + NDWI?0.25 + (1?������)?0.15 � demo-snapshot � {new Date().toLocaleDateString('ru-RU')}</p>
+      <p className="health-note">Оценка = NDVI×0.6 + NDWI×0.25 + (1−стресс)×0.15 · demo-snapshot · {new Date().toLocaleDateString('ru-RU')}</p>
     </div>
   )
 }
 
 function RiskDecadesWidget() {
   const risks = [
-    { name: '������',           decades: [22, 28, 31], level: 'low'    },
-    { name: '�������',          decades: [38, 41, 35], level: 'medium' },
-    { name: '������� �������',  decades: [30, 33, 25], level: 'low'    },
-    { name: '������������� ����',decades: [15, 19, 22], level: 'low'  },
-    { name: '���������',        decades: [3,  5,  8],  level: 'low'    },
-    { name: '������ ����',      decades: [5, 12, 28],  level: 'low'    },
-    { name: '�����. ������',    decades: [24, 31, 45], level: 'low'    },
+    { name: 'Засуха',           decades: [22, 28, 31], level: 'low'    },
+    { name: 'Суховей',          decades: [38, 41, 35], level: 'medium' },
+    { name: 'Дефицит осадков',  decades: [30, 33, 25], level: 'low'    },
+    { name: 'Экстремальная жара',decades: [15, 19, 22], level: 'low'  },
+    { name: 'Заморозок',        decades: [3,  5,  8],  level: 'low'    },
+    { name: 'Ранний снег',      decades: [5, 12, 28],  level: 'low'    },
+    { name: 'Влажн. уборка',    decades: [24, 31, 45], level: 'low'    },
   ]
-  const decLabels = ['��� I', '��� II', '��� I']
+  const decLabels = ['Июл I', 'Июл II', 'Авг I']
   return (
     <div className="risk-decades">
-      <div className="risk-decades-header">{['����', ...decLabels].map((l) => <span key={l}>{l}</span>)}</div>
+      <div className="risk-decades-header">{['Риск', ...decLabels].map((l) => <span key={l}>{l}</span>)}</div>
       {risks.map((r) => (
         <div key={r.name} className="risk-decades-row">
           <span>{r.name}</span>
@@ -1371,13 +1371,13 @@ function RiskDecadesWidget() {
 
 function FullRisksList() {
   const risks = [
-    { id: 'drought', name: '������', score: 28, level: 'low', status: '������ ����', detail: 'NDWI 0.38 � ������ � ����� � ����� ����� ������������������.' },
-    { id: 'dry_wind', name: '�������', score: 41, level: 'medium', status: '��������� ����', detail: '�������� ����� 6�9 �/� ��� ��������� <35% � ���������� ��� ����.' },
-    { id: 'precip', name: '������� �������', score: 33, level: 'low', status: '������ ����', detail: '������ � ����������� ����� ���� ����� �� 15�20%.' },
-    { id: 'heat', name: '������������� ����', score: 19, level: 'low', status: '������ ����', detail: '������� max: 29�C � ����������� �����: 35�C.' },
-    { id: 'frost', name: '���������', score: 5, level: 'low', status: '������ ����', detail: '����������� ������ ����������� +12�C � ���������.' },
-    { id: 'snow', name: '������ ����', score: 12, level: 'low', status: '������ ����', detail: '������ ���� ����������� � ����� 5 �������.' },
-    { id: 'wet', name: '������� ���� ������', score: 24, level: 'low', status: '������ ����', detail: '����������� ������� � ���� ������: 18%.' },
+    { id: 'drought', name: 'Засуха', score: 28, level: 'low', status: 'Низкий риск', detail: 'NDWI 0.38 · осадки в норме · запас влаги удовлетворительный.' },
+    { id: 'dry_wind', name: 'Суховей', score: 41, level: 'medium', status: 'Умеренный риск', detail: 'Скорость ветра 6–9 м/с при влажности <35% — характерно для июля.' },
+    { id: 'precip', name: 'Дефицит осадков', score: 33, level: 'low', status: 'Низкий риск', detail: 'Осадки в критических фазах ниже нормы на 15–20%.' },
+    { id: 'heat', name: 'Экстремальная жара', score: 19, level: 'low', status: 'Низкий риск', detail: 'Прогноз max: 29°C · критический порог: 35°C.' },
+    { id: 'frost', name: 'Заморозок', score: 5, level: 'low', status: 'Низкий риск', detail: 'Минимальная ночная температура +12°C · безопасно.' },
+    { id: 'snow', name: 'Ранний снег', score: 12, level: 'low', status: 'Низкий риск', detail: 'Первый снег исторически — после 5 октября.' },
+    { id: 'wet', name: 'Влажное окно уборки', score: 24, level: 'low', status: 'Низкий риск', detail: 'Вероятность осадков в окне уборки: 18%.' },
   ]
   return <>{risks.map((r) => <Risk key={r.id} label={r.name} score={r.score} status={r.status} color={r.level === 'medium' ? 'amber' : r.level === 'high' ? 'red' : 'green'} />)}</>
 }
@@ -1387,12 +1387,12 @@ function DecisionCalendarWidget({ field, onCreateTask }: { field: FieldRecord; o
   const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r }
   const fmt = (d: Date) => d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   const operations = [
-    { id: 'sowing', name: '���', icon: '??', start: sowDate, end: addDays(sowDate, 7), status: 'completed', reason: `����������� ����� ���� ${field.crop} � 10�20 ������ ��� �������� ����� �� +5�C.`, warning: null },
-    { id: 'fert', name: '���������', icon: '?', start: addDays(sowDate, 20), end: addDays(sowDate, 30), status: 'completed', reason: '���� 2�3 ������� � ��������� ������� ���������.', warning: null },
-    { id: 'treat', name: '������ ��������', icon: '??', start: addDays(sowDate, 35), end: addDays(sowDate, 45), status: 'upcoming', reason: '���� �������. �������� � ����� ��������� ������� �������� ����������.', warning: '�� ��������� ��� t < +8�C � ����� > 5 �/�.' },
-    { id: 'harvest', name: '������', icon: '??', start: addDays(sowDate, 130), end: addDays(sowDate, 140), status: 'planned', reason: `${field.crop} ��������� �������� ����� 130�140 ����. ��������� ����� 14�16%.`, warning: '��������� ���������� ����: 25 ��������.' },
+    { id: 'sowing', name: 'Сев', icon: '🌱', start: sowDate, end: addDays(sowDate, 7), status: 'completed', reason: `Оптимальные сроки сева ${field.crop} — 10–20 апреля при прогреве почвы до +5°C.`, warning: null },
+    { id: 'fert', name: 'Подкормка', icon: '⚗', start: addDays(sowDate, 20), end: addDays(sowDate, 30), status: 'completed', reason: 'Фаза 2–3 листьев — стартовая азотная подкормка.', warning: null },
+    { id: 'treat', name: 'Защита растений', icon: '🛡', start: addDays(sowDate, 35), end: addDays(sowDate, 45), status: 'upcoming', reason: 'Фаза кущения. Препарат и норму назначает агроном согласно регламенту.', warning: 'Не применять при t < +8°C и ветре > 5 м/с.' },
+    { id: 'harvest', name: 'Уборка', icon: '🌾', start: addDays(sowDate, 130), end: addDays(sowDate, 140), status: 'planned', reason: `${field.crop} достигает спелости через 130–140 дней. Влажность зерна 14–16%.`, warning: 'Последняя безопасная дата: 25 сентября.' },
   ]
-  const statusLabel: Record<string, string> = { completed: '���������', upcoming: '���������', planned: '�������������' }
+  const statusLabel: Record<string, string> = { completed: 'Выполнено', upcoming: 'Предстоит', planned: 'Запланировано' }
   const statusColor: Record<string, string> = { completed: 'green', upcoming: 'amber', planned: 'blue' }
   return (
     <div className="decision-calendar">
@@ -1400,13 +1400,13 @@ function DecisionCalendarWidget({ field, onCreateTask }: { field: FieldRecord; o
         <div key={op.id} className={`cal-op ${statusColor[op.status]}`}>
           <div className="cal-op-header">
             <span className="cal-icon">{op.icon}</span>
-            <div><b>{op.name}</b><small>{fmt(op.start)} � {fmt(op.end)}</small></div>
+            <div><b>{op.name}</b><small>{fmt(op.start)} – {fmt(op.end)}</small></div>
             <span className={`cal-status ${statusColor[op.status]}`}>{statusLabel[op.status]}</span>
           </div>
           <p className="cal-reason">{op.reason}</p>
-          {op.warning && <p className="cal-warning">? {op.warning}</p>}
+          {op.warning && <p className="cal-warning">⚠ {op.warning}</p>}
           {onCreateTask && op.status !== 'completed' && (
-            <button className="text-button" onClick={() => onCreateTask(`${op.name} � ${field.name}`)}>+ ������� ������</button>
+            <button className="text-button" onClick={() => onCreateTask(`${op.name} — ${field.name}`)}>＋ Создать задачу</button>
           )}
         </div>
       ))}
@@ -1415,7 +1415,7 @@ function DecisionCalendarWidget({ field, onCreateTask }: { field: FieldRecord; o
 }
 
 function YieldForecastPanel({ field }: { field: FieldRecord }) {
-  const cropBaseline: Record<string, number> = { �������: 2.8, ������: 2.4, ���: 1.1, ����: 1.6 }
+  const cropBaseline: Record<string, number> = { Пшеница: 2.8, Ячмень: 2.4, Лен: 1.1, Рапс: 1.6 }
   const base = cropBaseline[field.crop] ?? 2.5
   const ndviFactor = (0.68 - 0.5) * 0.8
   const droughtFactor = -0.15
@@ -1427,84 +1427,84 @@ function YieldForecastPanel({ field }: { field: FieldRecord }) {
   const area = field.plantedAreaHa || field.areaHa
   return (
     <div className="panel yield-forecast-panel">
-      <div className="panel-header"><div><h2>������� �����������</h2><p>{field.name} � {field.crop} � demo rule-based</p></div><span className="confidence-badge">�����������: 72%</span></div>
+      <div className="panel-header"><div><h2>Прогноз урожайности</h2><p>{field.name} · {field.crop} · demo rule-based</p></div><span className="confidence-badge">Уверенность: 72%</span></div>
       <div className="yield-main">
-        <div className="yield-big"><span>�������</span><strong>{pred.toFixed(2)}<small> �/��</small></strong><em>�����: {Math.round(pred * area * 10) / 10} �</em></div>
+        <div className="yield-big"><span>Базовый</span><strong>{pred.toFixed(2)}<small> т/га</small></strong><em>Итого: {Math.round(pred * area * 10) / 10} т</em></div>
         <div className="yield-interval">
           <div className="interval-bar-wrap">
             <div className="interval-bar">
               <div className="interval-fill" style={{ left: `${((lower) / 4) * 100}%`, width: `${((upper - lower) / 4) * 100}%` }} />
               <div className="interval-dot" style={{ left: `${(pred / 4) * 100}%` }} />
             </div>
-            <div className="interval-labels"><span>{lower.toFixed(2)}</span><span className="int-center">{pred.toFixed(2)} �/��</span><span>{upper.toFixed(2)}</span></div>
+            <div className="interval-labels"><span>{lower.toFixed(2)}</span><span className="int-center">{pred.toFixed(2)} т/га</span><span>{upper.toFixed(2)}</span></div>
           </div>
-          <p className="interval-note">������������� �������� 80% � �� �������� ��������� ������</p>
+          <p className="interval-note">Доверительный интервал 80% · не является гарантией урожая</p>
         </div>
       </div>
       <div className="yield-scenarios">
-        <div className="scenario unfavorable"><span>���������������</span><strong>{(pred * 0.8).toFixed(2)} �/��</strong><em>{Math.round(pred * 0.8 * area)} �</em></div>
-        <div className="scenario base active"><span>�������</span><strong>{pred.toFixed(2)} �/��</strong><em>{Math.round(pred * area)} �</em></div>
-        <div className="scenario favorable"><span>�������������</span><strong>{(pred * 1.15).toFixed(2)} �/��</strong><em>{Math.round(pred * 1.15 * area)} �</em></div>
+        <div className="scenario unfavorable"><span>Неблагоприятный</span><strong>{(pred * 0.8).toFixed(2)} т/га</strong><em>{Math.round(pred * 0.8 * area)} т</em></div>
+        <div className="scenario base active"><span>Базовый</span><strong>{pred.toFixed(2)} т/га</strong><em>{Math.round(pred * area)} т</em></div>
+        <div className="scenario favorable"><span>Благоприятный</span><strong>{(pred * 1.15).toFixed(2)} т/га</strong><em>{Math.round(pred * 1.15 * area)} т</em></div>
       </div>
-      <p className="yield-features">�������: NDVI 0.68 � NDWI 0.38 � ������ 28/100 � ��� {field.sowingDate} � ������� {area} �� � demo rule-based</p>
+      <p className="yield-features">Факторы: NDVI 0.68 · NDWI 0.38 · засуха 28/100 · сев {field.sowingDate} · площадь {area} га · demo rule-based</p>
     </div>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // LAYER LEGEND
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function LayerLegend({ layer }: { layer: string }) {
   if (layer === 'NDVI') return (
     <div className="layer-legend">
-      <span className="legend-title">NDVI � ��������������</span>
+      <span className="legend-title">NDVI — растительность</span>
       <div className="legend-gradient" style={{ background: 'linear-gradient(to right, #d73027, #fc8d59, #fee08b, #91cf60, #1a9850)' }} />
       <div className="legend-labels"><span>0.0</span><span>0.25</span><span>0.5</span><span>0.75</span><span>1.0</span></div>
-      <div className="legend-desc"><span style={{ color: '#d73027' }}>? ��� ������.</span><span style={{ color: '#91cf60' }}>? �����</span><span style={{ color: '#1a9850' }}>? �������</span></div>
+      <div className="legend-desc"><span style={{ color: '#d73027' }}>● Нет растит.</span><span style={{ color: '#91cf60' }}>● Норма</span><span style={{ color: '#1a9850' }}>● Высокий</span></div>
     </div>
   )
   if (layer === 'NDWI') return (
     <div className="layer-legend">
-      <span className="legend-title">NDWI � ���������</span>
+      <span className="legend-title">NDWI — влажность</span>
       <div className="legend-gradient" style={{ background: 'linear-gradient(to right, #d7191c, #fdae61, #ffffbf, #74add1, #2c7bb6)' }} />
-      <div className="legend-labels"><span>?1.0</span><span>?0.5</span><span>0</span><span>0.5</span><span>1.0</span></div>
-      <div className="legend-desc"><span style={{ color: '#d7191c' }}>? ����</span><span style={{ color: '#74add1' }}>? �����</span><span style={{ color: '#2c7bb6' }}>? ������</span></div>
+      <div className="legend-labels"><span>−1.0</span><span>−0.5</span><span>0</span><span>0.5</span><span>1.0</span></div>
+      <div className="legend-desc"><span style={{ color: '#d7191c' }}>● Сухо</span><span style={{ color: '#74add1' }}>● Норма</span><span style={{ color: '#2c7bb6' }}>● Влажно</span></div>
     </div>
   )
   if (layer === 'EVI') return (
     <div className="layer-legend">
-      <span className="legend-title">EVI � �����. ��������������</span>
+      <span className="legend-title">EVI — улучш. растительность</span>
       <div className="legend-gradient" style={{ background: 'linear-gradient(to right, #c9b3de, #9c6bab, #6b3d8a, #4a2567, #2d1345)' }} />
       <div className="legend-labels"><span>0.0</span><span>0.25</span><span>0.5</span><span>0.75</span><span>1.0</span></div>
-      <div className="legend-desc"><span style={{ color: '#c9b3de' }}>? ������</span><span style={{ color: '#9c6bab' }}>? �������</span><span style={{ color: '#4a2567' }}>? �������</span></div>
+      <div className="legend-desc"><span style={{ color: '#c9b3de' }}>● Слабый</span><span style={{ color: '#9c6bab' }}>● Средний</span><span style={{ color: '#4a2567' }}>● Высокий</span></div>
     </div>
   )
   return (
     <div className="layer-legend">
-      <span className="legend-title">�������� ����</span>
-      <div className="legend-desc" style={{ justifyContent: 'center' }}><span>RGB-������ � demo-�������</span></div>
+      <span className="legend-title">Истинный цвет</span>
+      <div className="legend-desc" style={{ justifyContent: 'center' }}><span>RGB-снимок · demo-мозаика</span></div>
     </div>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // MODAL PANELS
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 
 function SettingsPanel({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
   const [notifications, setNotifications] = useState(() => localStorage.getItem('smartagro-notifications') !== 'false')
-  const [units, setUnits] = useState(() => localStorage.getItem('smartagro-units') || '�����������')
+  const [units, setUnits] = useState(() => localStorage.getItem('smartagro-units') || 'Метрические')
   const [dbStatus, setDbStatus] = useState<{ ok: boolean; mode: string; warning?: string } | null>(null)
   const [checking, setChecking] = useState(false)
 
   const checkDb = async () => {
     setChecking(true)
     try {
-      const r = await fetch(api('/api/health')
+      const r = await fetch('/api/health')
       const d = await r.json()
       setDbStatus({ ok: d.ok, mode: d.mode, warning: d.warning })
     } catch {
-      setDbStatus({ ok: false, mode: 'error', warning: '������ ����������' })
+      setDbStatus({ ok: false, mode: 'error', warning: 'Сервер недоступен' })
     } finally { setChecking(false) }
   }
 
@@ -1517,113 +1517,113 @@ function SettingsPanel({ onClose, onSave }: { onClose: () => void; onSave: () =>
   return (
     <div className="chat-overlay" onClick={onClose}>
       <div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}>
-        <button className="close-chat" onClick={onClose}>?</button>
-        <p className="eyebrow green-text">���������</p>
-        <h2>������� �����</h2>
+        <button className="close-chat" onClick={onClose}>×</button>
+        <p className="eyebrow green-text">НАСТРОЙКИ</p>
+        <h2>Рабочая среда</h2>
 
         {/* DB Status block */}
         <div className="settings-db-block">
           <div className="settings-db-header">
-            <span><b>���� ������ MongoDB</b></span>
-            <button className="text-button" onClick={checkDb} disabled={checking}>{checking ? '���������' : '? ���������'}</button>
+            <span><b>База данных MongoDB</b></span>
+            <button className="text-button" onClick={checkDb} disabled={checking}>{checking ? 'Проверка…' : '↻ Проверить'}</button>
           </div>
           {dbStatus && (
             <div className={`settings-db-status ${dbStatus.ok && dbStatus.mode === 'mongodb' ? 'ok' : 'warn'}`}>
               {dbStatus.ok && dbStatus.mode === 'mongodb'
-                ? '? MongoDB ���������� � ������ ����������� � ����'
-                : `? ${dbStatus.warning || 'Demo-����� � ������ ������ � ��������'}`}
+                ? '✓ MongoDB подключена — данные сохраняются в базе'
+                : `⚠ ${dbStatus.warning || 'Demo-режим — данные только в браузере'}`}
             </div>
           )}
           <div className="settings-db-info">
-            <p>��� ������ � ����� ����� MongoDB URI � ����� <code>.env</code>:</p>
+            <p>Для работы с базой нужен MongoDB URI в файле <code>.env</code>:</p>
             <ol>
-              <li>����� �� <a href="https://cloud.mongodb.com" target="_blank" rel="noreferrer">cloud.mongodb.com</a> > Create Free Cluster (M0)</li>
-              <li>Database Access > Add User (����� + ������)</li>
-              <li>Network Access > Add IP > <b>0.0.0.0/0</b> (Allow from Anywhere)</li>
-              <li>Connect > Drivers > �������� SRV ������</li>
-              <li>������ � <code>.env</code>: <code>MONGODB_URI=mongodb+srv://�</code></li>
-              <li>�����������: <code>npm run dev:full</code></li>
+              <li>Зайди на <a href="https://cloud.mongodb.com" target="_blank" rel="noreferrer">cloud.mongodb.com</a> → Create Free Cluster (M0)</li>
+              <li>Database Access → Add User (логин + пароль)</li>
+              <li>Network Access → Add IP → <b>0.0.0.0/0</b> (Allow from Anywhere)</li>
+              <li>Connect → Drivers → скопируй SRV строку</li>
+              <li>Вставь в <code>.env</code>: <code>MONGODB_URI=mongodb+srv://…</code></li>
+              <li>Перезапусти: <code>npm run dev:full</code></li>
             </ol>
-            <p style={{ color: '#9aa79d', fontSize: 10, marginTop: 6 }}>��� MongoDB ���������� �������� � demo-������ � ������ �������� � ��������.</p>
+            <p style={{ color: '#9aa79d', fontSize: 10, marginTop: 6 }}>Без MongoDB приложение работает в demo-режиме — данные хранятся в браузере.</p>
           </div>
         </div>
 
         <label className="setting-row">
-          <span><b>����������� � ������</b><small>������, �������, ���� � �������� ����</small></span>
+          <span><b>Уведомления о рисках</b><small>Засуха, суховей, снег и погодные окна</small></span>
           <input type="checkbox" checked={notifications} onChange={(e) => setNotifications(e.target.checked)} />
         </label>
-        <label className="form-label">������� ���������
+        <label className="form-label">Единицы измерения
           <select className="form-input" value={units} onChange={(e) => setUnits(e.target.value)}>
-            <option>�����������</option>
-            <option>���������</option>
+            <option>Метрические</option>
+            <option>Имперские</option>
           </select>
         </label>
-        <button className="dark-button" style={{ marginTop: 18 }} onClick={save}>��������� <span>?</span></button>
+        <button className="dark-button" style={{ marginTop: 18 }} onClick={save}>Сохранить <span>✓</span></button>
       </div>
     </div>
   )
 }
 
 function ProfilePanel({ name, company, onClose, onLogout }: { name: string; company: string; onClose: () => void; onLogout: () => void }) {
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}><button className="close-chat" onClick={onClose}>?</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">������� ��������</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>�������</small><b>����������� �������</b></span><span><small>����</small><b>�������</b></span></div><button className="outline-button profile-button" onClick={onLogout}>����� �� ��������</button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">ПРОФИЛЬ АГРОНОМА</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>Агроном</b></span></div><button className="outline-button profile-button" onClick={onLogout}>Выйти из аккаунта</button></div></div>
 }
 
 function ReportModal({ company, fields, selectedField, economics, weatherItems, onClose }: { company: string; fields: FieldRecord[]; selectedField: FieldRecord; economics: any; weatherItems: WeatherItem[]; onClose: () => void }) {
   const download = () => {
     const now = new Date().toLocaleString('ru-RU')
-    const lines = [`SmartAgro ����� � ${now}`, `���������: ${company}`, `����: ${selectedField.name} � ${selectedField.crop} � ${selectedField.areaHa} ��`, `�����������: ${selectedField.yieldPerHa.toFixed(2)} �/�� � �������: ${selectedField.yieldForecastT.toFixed(2)} �/��`, `�����: ${Math.round(economics.margin).toLocaleString('ru-RU')} ?`, `�����: ������ 28/100 � ������� 41/100`, `������: ${weatherItems[0]?.temp}, ${weatherItems[0]?.rain}`, `���������: demo-snapshot � Open-Meteo`]
+    const lines = [`SmartAgro Отчёт · ${now}`, `Хозяйство: ${company}`, `Поле: ${selectedField.name} · ${selectedField.crop} · ${selectedField.areaHa} га`, `Урожайность: ${selectedField.yieldPerHa.toFixed(2)} т/га · Прогноз: ${selectedField.yieldForecastT.toFixed(2)} т/га`, `Маржа: ${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`, `Риски: Засуха 28/100 · Суховей 41/100`, `Погода: ${weatherItems[0]?.temp}, ${weatherItems[0]?.rain}`, `Источники: demo-snapshot · Open-Meteo`]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `smartagro-report-${selectedField.name}.txt`; a.click(); URL.revokeObjectURL(url)
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}><button className="close-chat" onClick={onClose}>?</button><p className="eyebrow green-text">��ר�</p><h2>������ ���������</h2><div className="report-preview"><b>{selectedField.name} � {selectedField.crop}</b><span>{selectedField.areaHa} �� � {selectedField.yieldForecastT.toFixed(2)} �/�� �������</span><span>�����: {Math.round(economics.margin).toLocaleString('ru-RU')} ?</span><span>�����: ���������</span></div><button className="dark-button" onClick={download}>������� ����� <span>v</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ</p><h2>Сводка хозяйства</h2><div className="report-preview"><b>{selectedField.name} · {selectedField.crop}</b><span>{selectedField.areaHa} га · {selectedField.yieldForecastT.toFixed(2)} т/га прогноз</span><span>Маржа: {Math.round(economics.margin).toLocaleString('ru-RU')} ₸</span><span>Риски: умеренные</span></div><button className="dark-button" onClick={download}>Скачать отчет <span>↓</span></button></div></div>
 }
 
 function AIChat({ onClose, selectedField }: { onClose: () => void; selectedField: FieldRecord }) {
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string; source?: string; facts?: string[] }>>([
-    { role: 'assistant', text: '������������. ������ � ������, ������������, �������, �������, ������� ����� � ���������� ���������. ��� ����� ���������?', source: 'SmartAgro' },
+    { role: 'assistant', text: 'Здравствуйте. Помогу с полями, урожайностью, погодой, рисками, сроками работ и экономикой хозяйства. Что нужно проверить?', source: 'SmartAgro' },
   ])
-  const context = { field: selectedField.name, crop: selectedField.crop, area: selectedField.areaHa, ndvi: 0.68, ndwi: 0.38, yieldForecast: `${selectedField.yieldForecastT.toFixed(2)} �/��`, lower_bound: '2.52', upper_bound: '3.08', droughtRisk: 28, dryWindRisk: 41, harvestWindow: '20�23 ��������' }
+  const context = { field: selectedField.name, crop: selectedField.crop, area: selectedField.areaHa, ndvi: 0.68, ndwi: 0.38, yieldForecast: `${selectedField.yieldForecastT.toFixed(2)} т/га`, lower_bound: '2.52', upper_bound: '3.08', droughtRisk: 28, dryWindRisk: 41, harvestWindow: '20–23 сентября' }
   async function send() {
     const text = question.trim()
     if (!text || loading) return
     setQuestion(''); setMessages((c) => [...c, { role: 'user', text }]); setLoading(true)
     try {
-      const r = await fetch(api('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, context }) })
+      const r = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, context }) })
       const res = await r.json()
-      setMessages((c) => [...c, { role: 'assistant', text: res.answer || '�� ������� �������� �����.', source: res.source, facts: res.facts }])
+      setMessages((c) => [...c, { role: 'assistant', text: res.answer || 'Не удалось получить ответ.', source: res.source, facts: res.facts }])
     } catch {
-      setMessages((c) => [...c, { role: 'assistant', text: '�� ������� ��������� � AI-��������.', source: '������' }])
+      setMessages((c) => [...c, { role: 'assistant', text: 'Не удалось связаться с AI-сервисом.', source: 'Ошибка' }])
     } finally { setLoading(false) }
   }
   return (
     <div className="chat-overlay ai-chat-overlay" onClick={onClose}>
       <div className="chat-panel ai-chat-panel" onClick={(e) => e.stopPropagation()}>
-        <button className="close-chat" onClick={onClose}>?</button>
-        <div className="chat-icon">?</div>
-        <p className="eyebrow green-text">SMARTAGRO AI �����</p>
-        <h2>�������� ��������</h2>
-        <p className="ai-scope">����: {selectedField.name} � {selectedField.crop} � NDVI 0.68 � NDWI 0.38</p>
+        <button className="close-chat" onClick={onClose}>×</button>
+        <div className="chat-icon">✦</div>
+        <p className="eyebrow green-text">SMARTAGRO AI АГЕНТ</p>
+        <h2>Помощник агронома</h2>
+        <p className="ai-scope">Поле: {selectedField.name} · {selectedField.crop} · NDVI 0.68 · NDWI 0.38</p>
         <div className="ai-messages">
           {messages.map((m, i) => (
             <div key={i} className={`ai-message ${m.role}`}>
               <span>{m.text}</span>
               {m.facts && m.facts.length > 0 && <div className="ai-facts">{m.facts.map((f, j) => <span key={j}>{f}</span>)}</div>}
-              {m.source && <small>��������: {m.source}</small>}
+              {m.source && <small>Источник: {m.source}</small>}
             </div>
           ))}
-          {loading && <div className="ai-message assistant"><span className="typing">���������� ������ �����</span></div>}
+          {loading && <div className="ai-message assistant"><span className="typing">Анализирую данные поля…</span></div>}
         </div>
         <div className="ai-suggestions">
-          <button onClick={() => setQuestion('������ ��������� ������� ������?')}>������� ������</button>
-          <button onClick={() => setQuestion('����� ����� ������� ����?')}>���� ������</button>
-          <button onClick={() => setQuestion('����� ����� ������?')}>�����</button>
-          <button onClick={() => setQuestion('��� �������� �����?')}>���������</button>
+          <button onClick={() => setQuestion('Почему изменился прогноз урожая?')}>Прогноз урожая</button>
+          <button onClick={() => setQuestion('Когда лучше убирать поле?')}>Срок уборки</button>
+          <button onClick={() => setQuestion('Какие риски сейчас?')}>Риски</button>
+          <button onClick={() => setQuestion('Как улучшить маржу?')}>Экономика</button>
         </div>
         <div className="ai-composer">
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="�������� ������ �� ���������" disabled={loading} />
-          <button onClick={send} disabled={loading || !question.trim()} aria-label="���������">^</button>
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Напишите вопрос по хозяйству…" disabled={loading} />
+          <button onClick={send} disabled={loading || !question.trim()} aria-label="Отправить">↑</button>
         </div>
       </div>
     </div>
@@ -1639,34 +1639,34 @@ function TaskFormModal({ task, fieldRecords, defaultField, onClose, onSave }: { 
   const [note, setNote] = useState(task?.note || '')
   const [error, setError] = useState('')
   const save = () => {
-    if (!title.trim()) { setError('������� �������� ������'); return }
+    if (!title.trim()) { setError('Укажите название задачи'); return }
     onSave({ id: task?.id || `local-${Date.now()}`, title: title.trim(), fieldName, priority, dueDate: dueDate || null, assignee, note, status: task?.status || 'open' })
   }
   return (
     <div className="chat-overlay" onClick={onClose}>
       <div className="chat-panel utility-panel" onClick={(e) => e.stopPropagation()}>
-        <button className="close-chat" onClick={onClose}>?</button>
-        <p className="eyebrow green-text">������</p>
-        <h2>{task ? '������������� ������' : '����� ������'}</h2>
-        <label className="form-label">��������<input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="��������, ��������� ���-��������� ����" /></label>
-        <label className="form-label">����<select className="form-input" value={fieldName} onChange={(e) => setFieldName(e.target.value)}>{fieldRecords.map((f) => <option key={f.name}>{f.name}</option>)}</select></label>
-        <label className="form-label">���������<select className="form-input" value={priority} onChange={(e) => setPriority(e.target.value as Task['priority'])}><option value="high">������</option><option value="medium">�������</option><option value="low">������</option></select></label>
-        <label className="form-label">����<input type="date" className="form-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
-        <label className="form-label">�������������<input className="form-input" value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="��� ��� ����" /></label>
-        <label className="form-label">����������<input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="�������������� ����������" /></label>
+        <button className="close-chat" onClick={onClose}>×</button>
+        <p className="eyebrow green-text">ЗАДАЧА</p>
+        <h2>{task ? 'Редактировать задачу' : 'Новая задача'}</h2>
+        <label className="form-label">Название<input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например, Осмотреть юго-восточную зону" /></label>
+        <label className="form-label">Поле<select className="form-input" value={fieldName} onChange={(e) => setFieldName(e.target.value)}>{fieldRecords.map((f) => <option key={f.name}>{f.name}</option>)}</select></label>
+        <label className="form-label">Приоритет<select className="form-input" value={priority} onChange={(e) => setPriority(e.target.value as Task['priority'])}><option value="high">Важный</option><option value="medium">Средний</option><option value="low">Низкий</option></select></label>
+        <label className="form-label">Срок<input type="date" className="form-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+        <label className="form-label">Ответственный<input className="form-input" value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="ФИО или роль" /></label>
+        <label className="form-label">Примечание<input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Дополнительная информация" /></label>
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
-          <button className="outline-button" onClick={onClose}>������</button>
-          <button className="dark-button" onClick={save}>{task ? '���������' : '������� ������'} <span>></span></button>
+          <button className="outline-button" onClick={onClose}>Отмена</button>
+          <button className="dark-button" onClick={save}>{task ? 'Сохранить' : 'Создать задачу'} <span>→</span></button>
         </div>
       </div>
     </div>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // YANDEX MAP COMPONENT
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, activeLayer = 'NDVI', fieldNdvi = [], fieldNdwi = [] }: {
   fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null
   fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>
@@ -1688,7 +1688,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         const selectionMode = allowOnlyZones || selectedField === undefined
         let regionBoundaries: [number, number][][] = [akmolaAgriculturalRegion]
         try {
-          const r = await fetch(api('/api/region-boundary')
+          const r = await fetch('/api/region-boundary')
           const data = await r.json() as { boundaries?: [number, number][][] }
           if (data.boundaries?.length) regionBoundaries = data.boundaries
         } catch {}
@@ -1700,7 +1700,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         const areas = fieldAreas.length ? fieldAreas : draftFields.map((f) => f.areaHa)
         const boundaries = fieldBoundaries.length ? fieldBoundaries : draftFields.map((f) => f.boundary)
         const visibleFields = [...fields, ...customFields]
-        const availableZones = selectionMode ? regionBoundaries.map((coords, i) => ({ name: `����������� ������� � ���� ${i + 1}`, crop: '����', coordinates: coords })) : []
+        const availableZones = selectionMode ? regionBoundaries.map((coords, i) => ({ name: `Акмолинская область · зона ${i + 1}`, crop: 'Поле', coordinates: coords })) : []
         const zoneObjects: Array<{ zone: typeof availableZones[number]; polygon: any }> = []
         let selectionMarker: any = null
         const vertexMarkers: any[] = []
@@ -1708,10 +1708,10 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         let drawingPolygon: any = null
         let clickTimer: ReturnType<typeof setTimeout> | null = null
         regionBoundaries.forEach((coords) => {
-          map.geoObjects.add(new yandex.Polygon([coords], { hintContent: '������� ����������� �������' }, { fillColor: '#00000000', strokeColor: '#ffffff', strokeWidth: 4, strokeStyle: 'longdash', interactivityModel: 'default#silent' }))
+          map.geoObjects.add(new yandex.Polygon([coords], { hintContent: 'Граница Акмолинской области' }, { fillColor: '#00000000', strokeColor: '#ffffff', strokeWidth: 4, strokeStyle: 'longdash', interactivityModel: 'default#silent' }))
         })
         availableZones.forEach((zone) => {
-          const polygon = new yandex.Polygon([zone.coordinates], { hintContent: `${getFieldNumber(zone.name)} � ${zone.crop}` }, { fillColor: '#00000000', strokeColor: `${getCropColor(zone.crop)}cc`, strokeWidth: 2, interactivityModel: 'default#silent' })
+          const polygon = new yandex.Polygon([zone.coordinates], { hintContent: `${getFieldNumber(zone.name)} · ${zone.crop}` }, { fillColor: '#00000000', strokeColor: `${getCropColor(zone.crop)}cc`, strokeWidth: 2, interactivityModel: 'default#silent' })
           zoneObjects.push({ zone, polygon }); map.geoObjects.add(polygon)
         })
         visibleFields.forEach((name, index) => {
@@ -1719,7 +1719,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
           if (!pt) return
           const coords = boundaries[index] ?? squareCoordinates(pt, areas[index] ?? 20)
           const isSelected = name === selectedField
-          const crop = selectionZones.find((f) => f.name === name)?.crop || draftFields.find((f) => f.name === name)?.crop || '����'
+          const crop = selectionZones.find((f) => f.name === name)?.crop || draftFields.find((f) => f.name === name)?.crop || 'Поле'
           const ndvi = fieldNdvi[index] ?? (0.52 + index * 0.08)
           const ndwi = fieldNdwi[index] ?? (0.28 + index * 0.06)
           const evi  = Math.round(ndvi * 0.85 * 1000) / 1000
@@ -1730,16 +1730,16 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
             return `${getCropColor(crop)}bb`
           }
           const fillColor = isSelected ? getFillColor().replace('99', 'dd').replace('bb', 'ee') : getFillColor()
-          const indexVal  = activeLayer === 'NDVI' ? ndvi.toFixed(3) : activeLayer === 'NDWI' ? ndwi.toFixed(3) : activeLayer === 'EVI' ? evi.toFixed(3) : '�'
-          const indexInfo = activeLayer === '�������� ����' ? '�������� ����' : `${activeLayer} ${activeLayer === '�������� ����' ? '' : indexVal}`
+          const indexVal  = activeLayer === 'NDVI' ? ndvi.toFixed(3) : activeLayer === 'NDWI' ? ndwi.toFixed(3) : activeLayer === 'EVI' ? evi.toFixed(3) : '—'
+          const indexInfo = activeLayer === 'Истинный цвет' ? 'Истинный цвет' : `${activeLayer} ${activeLayer === 'Истинный цвет' ? '' : indexVal}`
           const polygon = new yandex.Polygon([coords], {
-            hintContent: `${getFieldNumber(name)} � ${crop} � ${indexInfo}`,
-            balloonContentHeader: `${getFieldNumber(name)} � ${name}`,
-            balloonContentBody: `<b>��������:</b> ${crop}<br/><b>${activeLayer}:</b> ${indexVal}<br/><b>����:</b> ${activeLayer}`,
+            hintContent: `${getFieldNumber(name)} · ${crop} · ${indexInfo}`,
+            balloonContentHeader: `${getFieldNumber(name)} · ${name}`,
+            balloonContentBody: `<b>Культура:</b> ${crop}<br/><b>${activeLayer}:</b> ${indexVal}<br/><b>Слой:</b> ${activeLayer}`,
           }, { fillColor, strokeColor: isSelected ? '#ffffff' : '#edf6c9', strokeWidth: isSelected ? 4 : 2 })
           map.geoObjects.add(polygon)
           const center = coords.reduce((t, p) => [t[0] + p[0] / coords.length, t[1] + p[1] / coords.length], [0, 0]) as [number, number]
-          map.geoObjects.add(new yandex.Placemark(center, { iconCaption: getFieldNumber(name), hintContent: `${name} � ${crop}` }, { preset: 'islands#greenStretchyIcon', iconColor: getCropColor(crop) }))
+          map.geoObjects.add(new yandex.Placemark(center, { iconCaption: getFieldNumber(name), hintContent: `${name} · ${crop}` }, { preset: 'islands#greenStretchyIcon', iconColor: getCropColor(crop) }))
         })
         map.events.add('click', (event: any) => {
           const coords = event.get('coords') as [number, number]
@@ -1757,7 +1757,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
             return
           }
           if (selectionMarker) map.geoObjects.remove(selectionMarker)
-          selectionMarker = new yandex.Placemark(coords, { hintContent: '����� �������' }, { preset: 'islands#dotIcon', iconColor: '#dc8a38' })
+          selectionMarker = new yandex.Placemark(coords, { hintContent: 'Точка выбрана' }, { preset: 'islands#dotIcon', iconColor: '#dc8a38' })
           map.geoObjects.add(selectionMarker)
           window.dispatchEvent(new CustomEvent('smartagro-map-pick', { detail: { coords, allowed: true } }))
         })
@@ -1780,7 +1780,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
           map.geoObjects.add(cp); if (drawingPolygon) map.geoObjects.remove(drawingPolygon)
           vertexMarkers.forEach((m) => map.geoObjects.remove(m)); vertexMarkers.length = 0; drawingPoints = []; drawingPolygon = cp
         })
-        if (userLocation) map.geoObjects.add(new yandex.Placemark([userLocation.lat, userLocation.lon], { hintContent: '���� ��������������' }, { preset: 'islands#redDotIcon' }))
+        if (userLocation) map.geoObjects.add(new yandex.Placemark([userLocation.lat, userLocation.lon], { hintContent: 'Ваше местоположение' }, { preset: 'islands#redDotIcon' }))
         const selPt = selectedField ? points[fields.indexOf(selectedField)] : undefined
         if (!selectionMode && selPt) map.setCenter(selPt, 13, { duration: 450 })
         else if (selectionMode && availableZones.length > 0) map.setBounds(map.geoObjects.getBounds(), { checkZoomRange: true, zoomMargin: 60 })
@@ -1800,15 +1800,15 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
     return () => { mapInstance.current?.destroy(); mapInstance.current = null }
   }, [mapDataKey])
 
-  return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">�������� ����� �����</div>}</div>
+  return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">Загрузка карты полей…</div>}</div>
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // FIELD EDITOR MODAL
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (f: FieldRecord) => void }) {
   const [draft, setDraft] = useState<FieldRecord>(field || {
-    name: `���� ${existingFields.length + 1}`, crop: '�������', sowingDate: '2026-04-14', areaHa: 30, plantedAreaHa: 30,
+    name: `Поле ${existingFields.length + 1}`, crop: 'Пшеница', sowingDate: '2026-04-14', areaHa: 30, plantedAreaHa: 30,
     fuelUsedL: 180, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 0, yieldPerHa: 0, yieldForecastT: 2.4,
     seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0,
   })
@@ -1820,15 +1820,15 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
     const handle = (event: Event) => {
       const detail = (event as CustomEvent<{ coords: [number, number]; polygon?: [number, number][]; allowed: boolean }>).detail
       if (!detail.allowed) {
-        // ��������� ���� � ������������ ���� � ������ ����������
+        // Одиночный клик в недопустимой зоне — просто игнорируем
         return
       }
       if (detail.polygon && detail.polygon.length >= 3) {
-        // ������� ���� � �������� ������, ���� ��
+        // Двойной клик — завершён контур, берём всё
         setDraft((c) => ({ ...c, coordinates: detail.coords, boundary: detail.polygon, areaHa: getPolygonAreaHa(detail.polygon!) || c.areaHa, plantedAreaHa: getPolygonAreaHa(detail.polygon!) || c.plantedAreaHa }))
         setError('')
       } else {
-        // ��������� ���� � ���������� ���� � ������������� ������ ���������� ������
+        // Одиночный клик в допустимой зоне — устанавливаем только координаты центра
         setDraft((c) => ({ ...c, coordinates: detail.coords }))
         setError('')
       }
@@ -1837,117 +1837,117 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
     return () => window.removeEventListener('smartagro-map-pick', handle)
   }, [])
   const handleSave = () => {
-    if (!draft.name.trim()) { setError('������� �������� ����'); return }
-    if (Number(draft.areaHa) <= 0) { setError('������� ������ ���� ������ ����'); return }
-    // ������ ���������� ������ ��� ������ ���� ��� ���������
+    if (!draft.name.trim()) { setError('Укажите название поля'); return }
+    if (Number(draft.areaHa) <= 0) { setError('Площадь должна быть больше нуля'); return }
+    // Контур обязателен только для нового поля без координат
     if (!field && !draft.boundary?.length && (!draft.coordinates?.[0] || !draft.coordinates?.[1])) {
-      setError('�������� �� ����� ����� ������� �������������� ����, ��� ��������� ������')
+      setError('Кликните на карту чтобы указать местоположение поля, или нарисуйте контур')
       return
     }
     const la = draft.coordinates?.[0]; const lo = draft.coordinates?.[1]
     if (la !== undefined && lo !== undefined && (la < -90 || la > 90 || lo < -180 || lo > 180)) {
-      setError('������� ������������ ����������')
+      setError('Введены некорректные координаты')
       return
     }
-    const crop = draft.crop === '������ ��������' ? customCrop.trim() : draft.crop
-    if (!crop) { setError('������� �������� ��������'); return }
+    const crop = draft.crop === 'Другая культура' ? customCrop.trim() : draft.crop
+    if (!crop) { setError('Укажите название культуры'); return }
     setError('')
     onSave({ ...draft, crop, name: draft.name.trim(), areaHa: Number(draft.areaHa) || 0, plantedAreaHa: Number(draft.plantedAreaHa || draft.areaHa || 0), fuelUsedL: Number(draft.fuelUsedL || 0), fuelPricePerL: Number(draft.fuelPricePerL || 0), grainPricePerT: Number(draft.grainPricePerT || 0), harvestTotalT: Number(draft.harvestTotalT || 0), yieldPerHa: Number(draft.yieldPerHa || 0), yieldForecastT: Number(draft.yieldForecastT || draft.yieldPerHa || 0), seedCost: Number(draft.seedCost || 0), irrigationCost: Number(draft.irrigationCost || 0), treatmentCost: Number(draft.treatmentCost || 0), fertilizerCost: Number(draft.fertilizerCost || 0), machineryCost: Number(draft.machineryCost || 0), storageCost: Number(draft.storageCost || 0), otherCost: Number(draft.otherCost || 0), coordinates: draft.coordinates && draft.coordinates.every(Number.isFinite) ? draft.coordinates : undefined, boundary: draft.boundary && draft.boundary.length >= 3 ? draft.boundary : undefined })
   }
   return (
     <div className="chat-overlay" onClick={onClose}>
       <div className="chat-panel registration-panel" onClick={(e) => e.stopPropagation()} style={{ maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
-        <button className="close-chat" onClick={onClose}>?</button>
-        <p className="eyebrow green-text">������ ����</p>
-        <h2>{field ? '������������� ����' : '�������� ����'}</h2>
-        <label className="form-label">�������� ����<input className="form-input" value={draft.name} onChange={(e) => upd('name', e.target.value)} /></label>
-        <label className="form-label">��������<select className="form-input" value={standardCrops.includes(draft.crop) ? draft.crop : '������ ��������'} onChange={(e) => upd('crop', e.target.value)}><option>�������</option><option>������</option><option>���</option><option>����</option><option>������ ��������</option></select></label>
-        {draft.crop === '������ ��������' && <label className="form-label">�������� ��������<input className="form-input" value={customCrop} onChange={(e) => setCustomCrop(e.target.value)} /></label>}
-        <label className="form-label">���� ����<input type="date" className="form-input" value={draft.sowingDate} onChange={(e) => upd('sowingDate', e.target.value)} /></label>
+        <button className="close-chat" onClick={onClose}>×</button>
+        <p className="eyebrow green-text">ДАННЫЕ ПОЛЯ</p>
+        <h2>{field ? 'Редактировать поле' : 'Добавить поле'}</h2>
+        <label className="form-label">Название поля<input className="form-input" value={draft.name} onChange={(e) => upd('name', e.target.value)} /></label>
+        <label className="form-label">Культура<select className="form-input" value={standardCrops.includes(draft.crop) ? draft.crop : 'Другая культура'} onChange={(e) => upd('crop', e.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label>
+        {draft.crop === 'Другая культура' && <label className="form-label">Название культуры<input className="form-input" value={customCrop} onChange={(e) => setCustomCrop(e.target.value)} /></label>}
+        <label className="form-label">Дата сева<input type="date" className="form-input" value={draft.sowingDate} onChange={(e) => upd('sowingDate', e.target.value)} /></label>
         <div className="field-editor-map">
-          <div className="field-editor-map-title"><strong>1. �������� ���� �� �����</strong><span>�������� �� �������, ����� �������� ������� ���� �� ��������� �����</span></div>
+          <div className="field-editor-map-title"><strong>1. Выделите поле на карте</strong><span>Кликайте по границе, затем сделайте двойной клик на последней точке</span></div>
           <div className="field-editor-map-stage"><YandexFieldMap fields={existingFields.map((f) => f.name)} customFields={[]} selectedField={undefined} userLocation={null} fieldPoints={existingFields.map((f) => f.coordinates)} fieldAreas={existingFields.map((f) => f.areaHa)} fieldBoundaries={existingFields.map((f) => f.boundary)} selectionZones={existingFields} allowOnlyZones /></div>
-          <small>{field ? '������ ����� �������� ��������� ����������.' : '����� ���� ����� ������� � ����� ����������� ����������� �������.'}</small>
+          <small>{field ? 'Контур можно уточнить повторным выделением.' : 'Новое поле можно создать в любой сельхоззоне Акмолинской области.'}</small>
         </div>
         <div className="field-coordinates">
           <div className="coord-header">
-            <span className="coord-title">?? ���������� ������ ����</span>
+            <span className="coord-title">📍 Координаты центра поля</span>
             {draft.coordinates?.[0] && draft.coordinates?.[1]
-              ? <span className="coord-badge ok">? ����������� � {draft.coordinates[0].toFixed(5)}, {draft.coordinates[1].toFixed(5)}</span>
-              : <span className="coord-badge warn">�� ����������� � �������� �� ����� ��� ������� �������</span>}
+              ? <span className="coord-badge ok">✓ Установлены · {draft.coordinates[0].toFixed(5)}, {draft.coordinates[1].toFixed(5)}</span>
+              : <span className="coord-badge warn">Не установлены — кликните на карту или введите вручную</span>}
           </div>
           <div className="coord-inputs">
             <label className="form-label">
-              ������ (�.�.)
+              Широта (с.ш.)
               <input className="form-input" type="number" step="0.000001" min="50" max="53"
-                placeholder="51.094�"
+                placeholder="51.094…"
                 value={draft.coordinates?.[0] ?? ''}
                 onChange={(e) => upd('coordinates', [Number(e.target.value), draft.coordinates?.[1] ?? 71.47])} />
-              <small className="field-editor-hint">��������: 51.094 (����������� ���.)</small>
+              <small className="field-editor-hint">Например: 51.094 (Акмолинская обл.)</small>
             </label>
             <label className="form-label">
-              ������� (�.�.)
+              Долгота (в.д.)
               <input className="form-input" type="number" step="0.000001" min="68" max="74"
-                placeholder="71.466�"
+                placeholder="71.466…"
                 value={draft.coordinates?.[1] ?? ''}
                 onChange={(e) => upd('coordinates', [draft.coordinates?.[0] ?? 51.09, Number(e.target.value)])} />
-              <small className="field-editor-hint">��������: 71.466 (����������� ���.)</small>
+              <small className="field-editor-hint">Например: 71.466 (Акмолинская обл.)</small>
             </label>
           </div>
           <p className="coord-hint">
-            ?? �������� ���� ��� �� ����� ���� � ���������� ���������� �������������.
-            ��� ��������� ������ ������� ������ � ����� ���������� �� �������.
+            💡 Кликните один раз на карту выше — координаты заполнятся автоматически.
+            Или нарисуйте контур двойным кликом — центр вычислится из контура.
           </p>
         </div>
         <div className="field-editor-grid">
-          <label className="form-label">�������, ��<input className="form-input" type="number" min="0.1" step="0.1" value={draft.areaHa} onChange={(e) => upd('areaHa', Number(e.target.value))} /></label>
-          <label className="form-label">�������, ��<input className="form-input" type="number" step="0.1" value={draft.plantedAreaHa} onChange={(e) => upd('plantedAreaHa', Number(e.target.value))} /></label>
-          <label className="form-label">�������, �<input className="form-input" type="number" step="1" value={draft.fuelUsedL} onChange={(e) => upd('fuelUsedL', Number(e.target.value))} /></label>
-          <label className="form-label">�������, �<input className="form-input" type="number" step="0.1" value={draft.harvestTotalT} onChange={(e) => upd('harvestTotalT', Number(e.target.value))} /></label>
-          <div className="external-data-note"><b>����������� � �������</b><span>{draft.yieldForecastT.toFixed(2)} �/��</span><small>������ �� �������� ��������� ������.</small></div>
-          <label className="form-label">���� �������, ?/�<input className="form-input" type="number" min="0" step="1" value={draft.fuelPricePerL} onChange={(e) => upd('fuelPricePerL', Number(e.target.value))} /></label>
-          <label className="form-label">���� ����������, ?/�<input className="form-input" type="number" min="0" step="1000" value={draft.grainPricePerT} onChange={(e) => upd('grainPricePerT', Number(e.target.value))} /></label>
-          <label className="form-label">������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.seedCost} onChange={(e) => upd('seedCost', Number(e.target.value))} /></label>
-          <label className="form-label">����� � ����, ?<input className="form-input" type="number" min="0" step="1000" value={draft.irrigationCost} onChange={(e) => upd('irrigationCost', Number(e.target.value))} /></label>
-          <label className="form-label">�������� � ���������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.treatmentCost} onChange={(e) => upd('treatmentCost', Number(e.target.value))} /></label>
-          <label className="form-label">���������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.fertilizerCost} onChange={(e) => upd('fertilizerCost', Number(e.target.value))} /></label>
-          <label className="form-label">������� � ������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.machineryCost} onChange={(e) => upd('machineryCost', Number(e.target.value))} /></label>
-          <label className="form-label">����� � ��������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.storageCost} onChange={(e) => upd('storageCost', Number(e.target.value))} /></label>
-          <label className="form-label">������ �������, ?<input className="form-input" type="number" min="0" step="1000" value={draft.otherCost} onChange={(e) => upd('otherCost', Number(e.target.value))} /></label>
+          <label className="form-label">Площадь, га<input className="form-input" type="number" min="0.1" step="0.1" value={draft.areaHa} onChange={(e) => upd('areaHa', Number(e.target.value))} /></label>
+          <label className="form-label">Посеяно, га<input className="form-input" type="number" step="0.1" value={draft.plantedAreaHa} onChange={(e) => upd('plantedAreaHa', Number(e.target.value))} /></label>
+          <label className="form-label">Топливо, л<input className="form-input" type="number" step="1" value={draft.fuelUsedL} onChange={(e) => upd('fuelUsedL', Number(e.target.value))} /></label>
+          <label className="form-label">Собрано, т<input className="form-input" type="number" step="0.1" value={draft.harvestTotalT} onChange={(e) => upd('harvestTotalT', Number(e.target.value))} /></label>
+          <div className="external-data-note"><b>Урожайность и прогноз</b><span>{draft.yieldForecastT.toFixed(2)} т/га</span><small>Только из внешнего источника данных.</small></div>
+          <label className="form-label">Цена топлива, ₸/л<input className="form-input" type="number" min="0" step="1" value={draft.fuelPricePerL} onChange={(e) => upd('fuelPricePerL', Number(e.target.value))} /></label>
+          <label className="form-label">Цена реализации, ₸/т<input className="form-input" type="number" min="0" step="1000" value={draft.grainPricePerT} onChange={(e) => upd('grainPricePerT', Number(e.target.value))} /></label>
+          <label className="form-label">Семена, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.seedCost} onChange={(e) => upd('seedCost', Number(e.target.value))} /></label>
+          <label className="form-label">Полив и вода, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.irrigationCost} onChange={(e) => upd('irrigationCost', Number(e.target.value))} /></label>
+          <label className="form-label">Протрава и обработка, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.treatmentCost} onChange={(e) => upd('treatmentCost', Number(e.target.value))} /></label>
+          <label className="form-label">Удобрения, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.fertilizerCost} onChange={(e) => upd('fertilizerCost', Number(e.target.value))} /></label>
+          <label className="form-label">Техника и работы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.machineryCost} onChange={(e) => upd('machineryCost', Number(e.target.value))} /></label>
+          <label className="form-label">Сушка и хранение, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.storageCost} onChange={(e) => upd('storageCost', Number(e.target.value))} /></label>
+          <label className="form-label">Другие расходы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.otherCost} onChange={(e) => upd('otherCost', Number(e.target.value))} /></label>
         </div>
         {error && <p className="form-error">{error}</p>}
-        <div className="modal-actions"><button className="outline-button" onClick={onClose}>������</button><button className="dark-button" onClick={handleSave}>{field ? '��������� ���������' : '�������� ����'} <span>></span></button></div>
+        <div className="modal-actions"><button className="outline-button" onClick={onClose}>Отмена</button><button className="dark-button" onClick={handleSave}>{field ? 'Сохранить изменения' : 'Добавить поле'} <span>→</span></button></div>
       </div>
     </div>
   )
 }
 
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 // AUTH + REGISTRATION + SETUP
-// ==============================================================================
+// ══════════════════════════════════════════════════════════════════════════════
 
 function RegistrationModal({ selectedCompany, setSelectedCompany, agronomistName, setAgronomistName, onClose, onAddField }: { selectedCompany: Company; setSelectedCompany: (c: Company) => void; agronomistName: string; setAgronomistName: (n: string) => void; onClose: () => void; onAddField: () => void }) {
-  const [name, setName] = useState(agronomistName === '�������' ? '' : agronomistName)
+  const [name, setName] = useState(agronomistName === 'Агроном' ? '' : agronomistName)
   const storedFields = getStoredFields()
   return (
     <div className="chat-overlay" onClick={onClose}>
       <div className="chat-panel registration-panel" onClick={(e) => e.stopPropagation()}>
-        <button className="close-chat" onClick={onClose}>?</button>
-        <p className="eyebrow green-text">�Ψ ���������</p>
+        <button className="close-chat" onClick={onClose}>×</button>
+        <p className="eyebrow green-text">МОЁ ХОЗЯЙСТВО</p>
         <h2>{selectedCompany.name}</h2>
-        <p>{selectedCompany.location} � {selectedCompany.region}</p>
+        <p>{selectedCompany.location} · {selectedCompany.region}</p>
         <div className="company-preview">
-          <div className="company-badge">�</div>
+          <div className="company-badge">⌂</div>
           <div><b>{selectedCompany.name}</b><small>{selectedCompany.location}</small></div>
-          <span className="found-pill">�������</span>
+          <span className="found-pill">Активно</span>
         </div>
-        <label className="form-label">��� ��������<input className="form-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="���� ���" /></label>
+        <label className="form-label">Имя агронома<input className="form-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ваше имя" /></label>
         <div className="registered-fields">
-          {storedFields.map((f) => <span key={f.name}>{f.name} � {f.crop}</span>)}
+          {storedFields.map((f) => <span key={f.name}>{f.name} · {f.crop}</span>)}
         </div>
         <div className="modal-actions">
-          <button className="outline-button" onClick={onAddField}>+ �������� ����</button>
-          <button className="dark-button" onClick={() => { if (name.trim()) setAgronomistName(name.trim()); onClose() }}>��������� <span>></span></button>
+          <button className="outline-button" onClick={onAddField}>＋ Добавить поле</button>
+          <button className="dark-button" onClick={() => { if (name.trim()) setAgronomistName(name.trim()); onClose() }}>Сохранить <span>→</span></button>
         </div>
       </div>
     </div>
@@ -1962,7 +1962,7 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
   const [companyName, setCompanyName] = useState('')
   const [companyBin, setCompanyBin] = useState('')
   const [companyLocation, setCompanyLocation] = useState('')
-  const [region] = useState('����������� �������')
+  const [region] = useState('Акмолинская область')
   const [companies, setCompanies] = useState(demoCompanies)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -1970,7 +1970,7 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
   const isRegister = mode === 'register'
 
   useEffect(() => {
-    fetch(api(`/api/companies?region=${encodeURIComponent(region)}`)
+    fetch(`/api/companies?region=${encodeURIComponent(region)}`)
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((items: any[]) => setCompanies(items.map((i) => ({ name: i.name, region: i.region, location: i.location, fields: i.fields ?? [] }))))
       .catch(() => {})
@@ -1983,73 +1983,73 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
         const selectedCo = companyMode === 'existing' ? companies.find((c) => c.name === company) : null
         const body: any = { name: name.trim(), email: email.trim(), password, region }
         if (companyMode === 'existing' && selectedCo) {
-          const coList = await fetch(api(`/api/companies?region=${encodeURIComponent(region)}`).then((r) => r.json())
+          const coList = await fetch(`/api/companies?region=${encodeURIComponent(region)}`).then((r) => r.json())
           const found = coList.find((c: any) => c.name === company)
           if (found) body.companyId = found._id || found.id
         } else {
           body.companyName = companyName; body.companyBin = companyBin; body.companyLocation = companyLocation
         }
-        const r = await fetch(api('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const r = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await r.json()
-        if (!r.ok) { setError(data.error || '������ �����������'); return }
+        if (!r.ok) { setError(data.error || 'Ошибка регистрации'); return }
         const co = companyMode === 'existing' ? selectedCo ?? demoCompanies[0] : { name: companyName, region, location: companyLocation, fields: [] }
         onCompanySelected(co); onAuthenticated(data.user)
       } else {
-        const r = await fetch(api('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }) })
+        const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }) })
         const data = await r.json()
-        if (!r.ok) { setError(data.error || '������ �����'); return }
-        const coList = await fetch(api(`/api/companies?region=${encodeURIComponent(region)}`).then((res) => res.json()).catch(() => demoCompanies)
+        if (!r.ok) { setError(data.error || 'Ошибка входа'); return }
+        const coList = await fetch(`/api/companies?region=${encodeURIComponent(region)}`).then((res) => res.json()).catch(() => demoCompanies)
         const userCo = coList.find((c: any) => (c._id || c.id) === data.companyId) ?? demoCompanies[0]
         onCompanySelected(userCo); onAuthenticated(data.user)
       }
-    } catch { setError('��� ���������� � ��������. ���������� ��� ���.') }
+    } catch { setError('Нет соединения с сервером. Попробуйте ещё раз.') }
     finally { setLoading(false) }
   }
 
   const demoLogin = () => {
-    const demoUser: UserRecord = { id: 'demo', name: '������� Demo', email: 'demo@smartagro.kz', companyId: 'demo' }
+    const demoUser: UserRecord = { id: 'demo', name: 'Агроном Demo', email: 'demo@smartagro.kz', companyId: 'demo' }
     onCompanySelected(demoCompanies[0]); onAuthenticated(demoUser)
   }
 
   return (
     <div className="auth-shell">
       <div className="auth-visual">
-        <div className="auth-brand"><span className="brand-mark">?</span><span>smart<span>agro</span></span></div>
-        <div className="auth-mini-map"><span>����������� ������� � ���������</span><div className="mini-field mini-one" /><div className="mini-field mini-two" /><div className="mini-field mini-three" /></div>
+        <div className="auth-brand"><span className="brand-mark">✦</span><span>smart<span>agro</span></span></div>
+        <div className="auth-mini-map"><span>Акмолинская область · Казахстан</span><div className="mini-field mini-one" /><div className="mini-field mini-two" /><div className="mini-field mini-three" /></div>
         <div className="auth-visual-copy">
           <p className="eyebrow">SMARTAGRO AI ADVISOR</p>
-          <h1>�����<br /><em>���������</em></h1>
-          <p>������� �����������, ������������� ����� � �������������� ������� ��� ����������� �������.</p>
-          <div className="auth-proof"><span>NDVI � NDWI</span><span>Open-Meteo</span><span>AI �����</span></div>
+          <h1>Умное<br /><em>хозяйство</em></h1>
+          <p>Прогноз урожайности, климатические риски и агрономические решения для Акмолинской области.</p>
+          <div className="auth-proof"><span>NDVI · NDWI</span><span>Open-Meteo</span><span>AI Агент</span></div>
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div className="auth-card">
           <div className="auth-card-head"><span className="auth-kicker">SMARTAGRO</span></div>
-          <h2>{isRegister ? '�����������' : '�����'}</h2>
-          <p className="auth-subtitle">{isRegister ? '�������� ������� ����� ��� ������ ���������' : '������� � ������� ������� ��������'}</p>
+          <h2>{isRegister ? 'Регистрация' : 'Войти'}</h2>
+          <p className="auth-subtitle">{isRegister ? 'Создайте рабочее место для вашего хозяйства' : 'Войдите в рабочий кабинет агронома'}</p>
           {error && <div className="auth-error">{error}</div>}
-          {isRegister && <label className="form-label">���<input className="form-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="���� ���" /></label>}
+          {isRegister && <label className="form-label">Имя<input className="form-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ваше имя" /></label>}
           <label className="form-label">Email<input className="form-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" /></label>
-          <label className="form-label">������<input className="form-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="������" /></label>
+          <label className="form-label">Пароль<input className="form-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" /></label>
           {isRegister && (
             <>
-              <label className="form-label">���<select className="form-input" value={companyMode} onChange={(e) => setCompanyMode(e.target.value)}><option value="existing">������� �� ������</option><option value="new">���������������� �����</option></select></label>
+              <label className="form-label">ТОО<select className="form-input" value={companyMode} onChange={(e) => setCompanyMode(e.target.value)}><option value="existing">Выбрать из списка</option><option value="new">Зарегистрировать новое</option></select></label>
               {companyMode === 'existing' ? (
-                <label className="form-label">�������� ���<select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)}>{companies.map((c) => <option key={c.name}>{c.name}</option>)}</select></label>
+                <label className="form-label">Выберите ТОО<select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)}>{companies.map((c) => <option key={c.name}>{c.name}</option>)}</select></label>
               ) : (
                 <>
-                  <label className="form-label">�������� ���<input className="form-input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} /></label>
-                  <label className="form-label">��� (12 ����)<input className="form-input" value={companyBin} onChange={(e) => setCompanyBin(e.target.value)} /></label>
-                  <label className="form-label">����� / ��������� �����<input className="form-input" value={companyLocation} onChange={(e) => setCompanyLocation(e.target.value)} /></label>
+                  <label className="form-label">Название ТОО<input className="form-input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} /></label>
+                  <label className="form-label">БИН (12 цифр)<input className="form-input" value={companyBin} onChange={(e) => setCompanyBin(e.target.value)} /></label>
+                  <label className="form-label">Район / населённый пункт<input className="form-input" value={companyLocation} onChange={(e) => setCompanyLocation(e.target.value)} /></label>
                 </>
               )}
             </>
           )}
-          <button className="dark-button auth-submit" onClick={submit} disabled={loading}>{loading ? '���������' : isRegister ? '������������������' : '�����'} <span>></span></button>
-          <button className="demo-login" onClick={demoLogin}>����� � demo-������ ��� �����������</button>
-          <div className="auth-switch"><span>{isRegister ? '��� ���� �������? ' : '��� ��������? '}</span><button onClick={() => setMode(isRegister ? 'login' : 'register')}>{isRegister ? '�����' : '������������������'}</button></div>
-          <small className="auth-note">����������� ������� � ��������� � SmartAgro MVP � demo-data-2026</small>
+          <button className="dark-button auth-submit" onClick={submit} disabled={loading}>{loading ? 'Загрузка…' : isRegister ? 'Зарегистрироваться' : 'Войти'} <span>→</span></button>
+          <button className="demo-login" onClick={demoLogin}>Войти в demo-режиме без регистрации</button>
+          <div className="auth-switch"><span>{isRegister ? 'Уже есть аккаунт? ' : 'Нет аккаунта? '}</span><button onClick={() => setMode(isRegister ? 'login' : 'register')}>{isRegister ? 'Войти' : 'Зарегистрироваться'}</button></div>
+          <small className="auth-note">Акмолинская область · Казахстан · SmartAgro MVP · demo-data-2026</small>
         </div>
       </div>
     </div>
@@ -2059,7 +2059,7 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
 function FieldSetupScreen({ company, userLocation, onComplete }: { company: Company; userLocation: { lat: number; lon: number } | null; onComplete: (fields: FieldRecord[]) => void }) {
   const [fields, setFields] = useState<FieldRecord[]>([])
   const [name, setName] = useState('')
-  const [crop, setCrop] = useState('�������')
+  const [crop, setCrop] = useState('Пшеница')
   const [customCrop, setCustomCrop] = useState('')
   const [sowingDate, setSowingDate] = useState('')
   const [areaHa, setAreaHa] = useState('30')
@@ -2070,7 +2070,7 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
   useEffect(() => {
     const handle = (event: Event) => {
       const detail = (event as CustomEvent<{ coords: [number, number]; polygon?: [number, number][]; allowed: boolean }>).detail
-      if (!detail.allowed) { setError('��������� ������ ���� ������� ������ ����������� �������'); return }
+      if (!detail.allowed) { setError('Нарисуйте контур поля целиком внутри выделенного участка'); return }
       if (!detail.polygon || detail.polygon.length < 3) return
       setSelectedPoint(detail.coords); setSelectedBoundary(detail.polygon); setError('')
     }
@@ -2079,10 +2079,10 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
   }, [])
 
   const addField = () => {
-    if (!name.trim() || !sowingDate || !selectedPoint || !selectedBoundary || selectedBoundary.length < 3 || Number(areaHa) <= 0 || (crop === '������ ��������' && !customCrop.trim())) { setError('������� ������ � ��������� ������ ���� �� �����'); return }
+    if (!name.trim() || !sowingDate || !selectedPoint || !selectedBoundary || selectedBoundary.length < 3 || Number(areaHa) <= 0 || (crop === 'Другая культура' && !customCrop.trim())) { setError('Укажите данные и нарисуйте контур поля на карте'); return }
     const calculatedArea = getPolygonAreaHa(selectedBoundary)
     const finalArea = calculatedArea > 0 ? calculatedArea : Number(areaHa)
-    const newField: FieldRecord = { name: name.trim(), crop: crop === '������ ��������' ? customCrop.trim() : crop, sowingDate, areaHa: finalArea, plantedAreaHa: finalArea, fuelUsedL: 180, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 0, yieldPerHa: 0, yieldForecastT: 2.4, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: selectedPoint, boundary: selectedBoundary }
+    const newField: FieldRecord = { name: name.trim(), crop: crop === 'Другая культура' ? customCrop.trim() : crop, sowingDate, areaHa: finalArea, plantedAreaHa: finalArea, fuelUsedL: 180, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 0, yieldPerHa: 0, yieldForecastT: 2.4, seedCost: 0, irrigationCost: 0, treatmentCost: 0, fertilizerCost: 0, machineryCost: 0, storageCost: 0, otherCost: 0, coordinates: selectedPoint, boundary: selectedBoundary }
     const next = [...fields, newField]
     setFields(next); localStorage.setItem('smartagro-field-draft', JSON.stringify(next))
     setName(''); setSowingDate(''); setAreaHa('30'); setSelectedPoint(null); setSelectedBoundary(null); setError('')
@@ -2090,22 +2090,22 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
 
   return (
     <div className="setup-shell">
-      <div className="setup-top"><div className="auth-brand"><span className="brand-mark">?</span> smart<span>agro</span></div><span className="setup-step">��� 1 �� 1 � ��������� ���������</span></div>
+      <div className="setup-top"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span></div>
       <div className="setup-content">
         <div className="setup-copy">
-          <p className="eyebrow green-text">��� �������</p>
-          <h1>��������� ����<br /><em>� �������� �����</em></h1>
-          <p>��� �{company.name.replace('��� �', '').replace('�', '')}� ������� � {company.region}. �������� ����, ����� SmartAgro ������ �����������, ������ � ��������� ������ ������ ���������.</p>
-          <div className="company-found"><span className="company-badge">�</span><div><b>{company.name}</b><small>{company.location} � {userLocation ? '�������������� ������������' : '���������� ��������������'}</small></div><i>�������</i></div>
+          <p className="eyebrow green-text">ТОО НАЙДЕНО</p>
+          <h1>Подключим поля<br /><em>к рабочему столу</em></h1>
+          <p>ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}. Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.</p>
+          <div className="company-found"><span className="company-badge">⌂</span><div><b>{company.name}</b><small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small></div><i>Найдено</i></div>
           <div className="setup-form">
-            <label>����� ��� �������� ����<input value={name} onChange={(e) => setName(e.target.value)} placeholder="��������, ���� 12" /></label>
-            <label>��������<select value={crop} onChange={(e) => setCrop(e.target.value)}><option>�������</option><option>������</option><option>���</option><option>����</option><option>������ ��������</option></select></label>
-            <label>���� ����<input type="date" value={sowingDate} onChange={(e) => setSowingDate(e.target.value)} /></label>
-            <button className="setup-add" onClick={addField}>+ �������� ����</button>
+            <label>Номер или название поля<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Поле 12" /></label>
+            <label>Культура<select value={crop} onChange={(e) => setCrop(e.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label>
+            <label>Дата сева<input type="date" value={sowingDate} onChange={(e) => setSowingDate(e.target.value)} /></label>
+            <button className="setup-add" onClick={addField}>＋ Добавить поле</button>
             {error && <small className="setup-error">{error}</small>}
           </div>
-          <div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">�������� ������ ����, ����� ����������</span> : fields.map((f, i) => <div key={`${f.name}-${i}`} className="setup-field-row"><span className="field-health healthy" /><div><b>{f.name}</b><small>{f.crop} � ��� {f.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fi) => fi !== i))}>?</button></div>)}</div>
-          <button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>��������� ���� � ������� ������� ����</button>
+          <div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">Добавьте первое поле, чтобы продолжить</span> : fields.map((f, i) => <div key={`${f.name}-${i}`} className="setup-field-row"><span className="field-health healthy" /><div><b>{f.name}</b><small>{f.crop} · сев {f.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fi) => fi !== i))}>×</button></div>)}</div>
+          <button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>Сохранить поля и открыть рабочий стол</button>
         </div>
         <div className="setup-map"><div className="setup-map-stage"><YandexFieldMap fields={fields.map((f) => f.name)} customFields={[]} userLocation={userLocation} fieldPoints={fields.map((f) => f.coordinates)} fieldAreas={fields.map((f) => f.areaHa)} /><div className="setup-map-note" /></div></div>
       </div>

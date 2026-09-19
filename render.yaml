@@ -21,3 +21,26 @@ services:
         sync: false          # вводится вручную
       - key: OPENAI_MODEL
         value: gpt-4o-mini
+
+  # ── Frontend (React + Vite → Static Site) ─────────────────────────────────
+  - type: web
+    name: smartagro-frontend
+    runtime: static
+    region: frankfurt
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        # После деплоя backend замени на реальный URL, например:
+        # https://smartagro-api.onrender.com
+        sync: false
