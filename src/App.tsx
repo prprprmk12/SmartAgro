@@ -810,6 +810,36 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
   useEffect(() => {
     const apiKey = import.meta.env.VITE_YANDEX_MAPS_API_KEY
     if (!mapRef.current || !apiKey) return
+
+    // Destroy previous instance first
+    if (mapInstance.current) {
+      try { mapInstance.current.destroy() } catch { /* ignore */ }
+      mapInstance.current = null
+    }
+    setLoaded(false)
+
+    const initMap = () => {
+      const yandex = (window as Window & { ymaps?: any }).ymaps
+      if (!yandex || !mapRef.current) return
+
+      // Wait until container has real dimensions (fixes mobile 0-height issue)
+      const container = mapRef.current
+      if (container.offsetHeight < 10) {
+        const ro = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.contentRect.height >= 10) {
+              ro.disconnect()
+              drawMap()
+              return
+            }
+          }
+        })
+        ro.observe(container)
+        return
+      }
+      drawMap()
+    }
+
     const drawMap = () => {
       const yandex = (window as Window & { ymaps?: any }).ymaps
       if (!yandex || !mapRef.current || mapInstance.current) return
@@ -859,14 +889,11 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
           const coordinates = boundaries[index] ?? squareCoordinates(selectedPoint, areas[index] ?? 20)
           const isSelected = name === selectedField
           const crop = selectionZones.find((field) => field.name === name)?.crop || draftFields.find((field) => field.name === name)?.crop || 'Поле'
-          // Demo spectral index values — deterministic per field index
           const ndviValue = 0.55 + index * 0.05 + (index % 2 === 0 ? 0.03 : -0.01)
           const ndwiValue = 0.30 + index * 0.04 - (index % 3 === 0 ? 0.05 : 0)
-          // Compute fill color based on active layer
           let fillColor: string
           let strokeColor: string
           if (layer === 'NDVI') {
-            // NDVI: red (low) → yellow (mid) → green (high) scale, typical range 0.2–0.9
             const t = Math.min(1, Math.max(0, (ndviValue - 0.2) / 0.7))
             if (t < 0.5) {
               const r = Math.round(220 - t * 2 * 70)
@@ -879,7 +906,6 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
             }
             strokeColor = isSelected ? '#ffffff' : '#b8df70'
           } else if (layer === 'NDWI') {
-            // NDWI: brown (dry) → cyan (wet) scale, typical range -0.3–0.7
             const t = Math.min(1, Math.max(0, (ndwiValue + 0.3) / 1.0))
             const r = Math.round(160 - t * 140)
             const g = Math.round(100 + t * 100)
@@ -887,7 +913,6 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
             fillColor = isSelected ? '#1a7fa8cc' : `rgba(${r},${g},${b},0.75)`
             strokeColor = isSelected ? '#ffffff' : '#7ecfef'
           } else {
-            // Истинный цвет: natural satellite look — crop-colored, semi-transparent
             fillColor = isSelected ? '#2f8f5fbb' : `${getCropColor(crop)}aa`
             strokeColor = isSelected ? '#ffffff' : '#edf6c9'
           }
@@ -978,19 +1003,35 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         setLoaded(true)
       })
     }
+
     const existing = document.querySelector('script[data-smartagro-yandex]')
-    if (existing) drawMap()
-    else {
+    if (existing) {
+      initMap()
+    } else {
       const script = document.createElement('script')
       script.dataset.smartagroYandex = 'true'
       script.src = `https://api-maps.yandex.ru/2.1/?apikey=${apiKey}&lang=ru_RU`
-      script.onload = drawMap
+      script.onload = initMap
       document.head.appendChild(script)
     }
-    return () => { mapInstance.current?.destroy(); mapInstance.current = null }
+
+    return () => {
+      if (mapInstance.current) {
+        try { mapInstance.current.destroy() } catch { /* ignore */ }
+        mapInstance.current = null
+      }
+    }
   }, [mapDataKey])
 
-  return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">Загрузка карты полей…</div>}</div>
+  return (
+    <div
+      ref={mapRef}
+      className="real-map"
+      style={{ width: '100%', height: '100%', minHeight: 'inherit', display: 'block' }}
+    >
+      {!loaded && <div className="map-loading">Загрузка карты…</div>}
+    </div>
+  )
 }
 
 function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (field: FieldRecord) => void }) {

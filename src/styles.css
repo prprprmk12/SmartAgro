@@ -782,3 +782,84 @@ body { font-size: 15px; }
   .setup-add { min-height: 48px; }
   .setup-finish { min-height: 54px; font-size: 14px; padding: 0 16px; }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAP CONTAINER — explicit heights at every level so Yandex Maps
+   always sees offsetHeight > 0 on init (fixes mobile blank map)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Main dashboard map */
+.map-stage {
+  position: relative;
+  min-height: 300px;
+  height: 340px;
+}
+.map-stage .real-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Setup screen map */
+.setup-map-stage {
+  position: relative;
+  height: 420px;
+  width: 100%;
+}
+.setup-map-stage .real-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Field editor modal map */
+.field-editor-map-stage {
+  position: relative;
+  height: 300px;
+  overflow: hidden;
+  border-radius: 7px;
+  border: 1px solid #d9e6d5;
+  background: #dbe8d7;
+}
+.field-editor-map-stage .real-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* real-map itself — always block, no min-height fallback needed
+   (height comes from parent via absolute positioning) */
+.real-map {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.map-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #607c68;
+  background: #dce6d5;
+  font-size: 12px;
+  z-index: 0;
+}
+
+/* ── Mobile map heights ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .map-stage { height: 280px; min-height: 280px; }
+  .setup-map-stage { height: 300px; }
+  .field-editor-map-stage { height: 250px; }
+}
+
+@media (max-width: 480px) {
+  .map-stage { height: 240px; min-height: 240px; }
+  .setup-map-stage { height: 260px; }
+  .field-editor-map-stage { height: 220px; }
+}
