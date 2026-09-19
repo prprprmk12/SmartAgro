@@ -229,23 +229,24 @@ body { font-size: 15px; }
 
 /* ── Map helpers ─────────────────────────────────────────────────────── */
 .weather-refresh { border: 1px solid #e5d9c0; padding: 5px 9px; border-radius: 5px; background: #fff9ef; cursor: pointer; }
-.real-map { width: 100%; height: 100%; min-height: 280px; }
-.map-loading { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 220px; color: #7a9a7e; font-size: 11px; background: #e8f0e2; }
-.field-editor-map-stage { position: relative; height: 280px; overflow: hidden; border-radius: 7px; }
 
-/* ── Mobile-only nav elements (hidden on desktop) ────────────────────── */
-.mobile-nav-add,
-.mobile-nav-avatar { display: none; }
+/* map containers — explicit heights so Yandex Maps always has offsetHeight > 0 */
+.map-stage         { position: relative; height: 360px; overflow: hidden; }
+.setup-map-stage   { position: relative; height: 420px; }
+.field-editor-map-stage { position: relative; height: 300px; overflow: hidden; border-radius: 7px; border: 1px solid #d9e6d5; background: #dbe8d7; }
 
-/* ── profile-name hidden on mobile ──────────────────────────────────── */
-.profile-name { /* visible on desktop */ }
+.real-map          { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.map-loading       { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #607c68; background: #dce6d5; font-size: 12px; z-index: 0; }
+
+/* ── Mobile-only elements ────────────────────────────────────────────── */
+.mobile-nav-add, .mobile-nav-avatar { display: none; }
+.profile-name { /* visible on desktop — hidden on mobile via media query */ }
 
 /* ══════════════════════════════════════════════════════════════════════
-   RESPONSIVE  —  1100 → 768 → 480px
-   Single source of truth. No duplicate blocks.
+   RESPONSIVE  —  one clean cascade, no duplicates
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ── 1100px: tablet landscape ───────────────────────────────────────── */
+/* ── 1100px ──────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .sidebar { width: 210px; flex-basis: 210px; }
   .content-wrap { padding: 28px 24px; }
@@ -257,17 +258,18 @@ body { font-size: 15px; }
   .economy-result { border-left: 0; padding-left: 0; border-top: 1px solid #436652; padding-top: 14px; }
 }
 
-/* ── 900px: setup screen ────────────────────────────────────────────── */
+/* ── 900px: setup tablets ────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .setup-content { grid-template-columns: 1fr; padding: 35px 20px 60px; }
+  /* setup: single column, map above form */
+  .setup-content { grid-template-columns: 1fr; padding: 28px 20px 60px; }
   .setup-copy { max-width: none; }
-  .setup-map { order: -1; }
-  .setup-map-stage { height: 330px; }
+  .setup-map { order: -1; }        /* map floats above form */
+  .setup-map-stage { height: 340px; }
   .setup-form { grid-template-columns: 1fr; }
   .setup-add, .setup-error { grid-column: auto; }
 }
 
-/* ── 800px: auth screen ─────────────────────────────────────────────── */
+/* ── 800px: auth screen ──────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .auth-shell { display: block; }
   .auth-visual { min-height: 250px; padding: 24px; display: flex; }
@@ -279,111 +281,81 @@ body { font-size: 15px; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   768px — MAIN MOBILE BREAKPOINT
+   768px — MOBILE
    ════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
 
-  /* ── Global shell ── */
   body { padding-bottom: 66px; }
-  .app-shell { flex-direction: column; min-height: 100vh; }
-  .main-content { width: 100%; }
+  .app-shell { flex-direction: column; }
 
-  /* ────────────────────────────────────────────────────────────────────
-     BOTTOM NAVIGATION BAR
-     Layout: [← field tabs (scroll) →] [＋] [avatar]
-  ──────────────────────────────────────────────────────────────────── */
+  /* ── Bottom nav bar ─────────────────────────────────────────────── */
   .sidebar {
     position: fixed; z-index: 50;
     bottom: 0; left: 0; right: 0;
-    width: 100%; height: 66px;
-    flex: none; flex-direction: row;
-    align-items: center; padding: 0;
-    gap: 0;
+    width: 100%; height: 66px; flex: none;
+    flex-direction: row; align-items: center;
+    padding: 0; gap: 0;
     border-top: 1px solid #2a4a3b;
     background: #193c31;
   }
-
-  /* Hide desktop-only elements */
   .sidebar .brand,
   .sidebar .farm-switcher,
   .sidebar .sidebar-section-header,
   .sidebar .sidebar-footer { display: none; }
 
-  /* Field tabs — scrollable horizontal strip */
   .sidebar-field-list {
     display: flex; flex-direction: row; gap: 4px;
-    flex: 1; min-width: 0;
-    max-height: none; overflow-x: auto; overflow-y: hidden;
-    padding: 0 8px;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    align-items: center;
+    flex: 1; min-width: 0; max-height: none;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 0 8px; align-items: center;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
   }
   .sidebar-field-list::-webkit-scrollbar { display: none; }
+
   .sidebar-field-item {
-    flex: 0 0 auto;
-    display: flex; flex-direction: column;
+    flex: 0 0 auto; flex-direction: column;
     align-items: center; justify-content: center;
     padding: 6px 10px; border-radius: 8px;
-    min-width: 60px; max-width: 90px;
-    gap: 2px; text-align: center;
-    min-height: 50px;
+    min-width: 62px; gap: 2px; text-align: center; min-height: 50px;
   }
-  .field-list-main b { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 76px; }
-  .field-list-main small { font-size: 8px; margin-top: 1px; }
+  .field-list-main b { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 78px; }
+  .field-list-main small { font-size: 8px; }
   .field-list-meta { display: none; }
 
-  /* ＋ Add field button — right side of bottom bar */
+  /* ＋ and avatar buttons in bottom bar */
   .mobile-nav-add {
     display: grid; place-items: center;
     flex: 0 0 50px; height: 66px;
     border: 0; border-left: 1px solid #2a4a3b;
     color: #cde5b8; background: transparent;
-    font-size: 22px; line-height: 1;
-    cursor: pointer;
+    font-size: 22px; cursor: pointer;
   }
-  .mobile-nav-add:active { background: #254b3d; }
-
-  /* Avatar / profile — rightmost button */
   .mobile-nav-avatar {
     display: grid; place-items: center;
     flex: 0 0 56px; height: 66px;
     border: 0; border-left: 1px solid #2a4a3b;
-    background: transparent; cursor: pointer;
-    padding: 0;
+    background: transparent; cursor: pointer; padding: 0;
   }
-  /* Inner avatar circle drawn via the button itself */
   .mobile-nav-avatar-inner {
     display: grid; place-items: center;
-    width: 32px; height: 32px;
-    border-radius: 50%;
-    background: #bad985;
-    color: #244532;
-    font-size: 10px; font-weight: 800;
-    pointer-events: none;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #bad985; color: #244532;
+    font-size: 10px; font-weight: 800; pointer-events: none;
   }
 
-  /* ────────────────────────────────────────────────────────────────────
-     TOPBAR
-  ──────────────────────────────────────────────────────────────────── */
-  .topbar { height: 54px; padding: 0 14px; }
+  /* ── Topbar ──────────────────────────────────────────────────────── */
+  .topbar { height: 52px; padding: 0 14px; }
   .breadcrumb { font-size: 11px; gap: 6px; }
-  .breadcrumb-home { display: none; } /* hide "SmartAgro" text, show field name only */
+  .breadcrumb-home { display: none; }
   .live-pill { display: none; }
   .top-actions { gap: 8px; }
-  /* Show only avatar on topbar, hide name text */
-  .profile { display: flex; align-items: center; gap: 0; font-size: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+  .profile { font-size: 0; gap: 0; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; }
   .profile-name { display: none; }
-  .profile-avatar { width: 34px; height: 34px; font-size: 11px; display: grid; place-items: center; }
-  /* Notification bell */
+  .profile-avatar { width: 34px; height: 34px; font-size: 11px; }
   .icon-button { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; }
 
-  /* ────────────────────────────────────────────────────────────────────
-     CONTENT
-  ──────────────────────────────────────────────────────────────────── */
+  /* ── Content ─────────────────────────────────────────────────────── */
   .content-wrap { padding: 14px 12px 18px; }
-
-  /* Page heading */
   .page-heading { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
   .page-heading h1 { font-size: 20px; letter-spacing: -0.4px; margin: 0; }
   .muted { font-size: 11px; margin-top: 4px; }
@@ -391,7 +363,7 @@ body { font-size: 15px; }
   .heading-actions .outline-button { flex: 1; text-align: center; padding: 10px 8px; font-size: 11px; min-height: 44px; }
   .secondary-action { display: none; }
 
-  /* KPI grid — 2 columns */
+  /* KPI */
   .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
   .kpi-card { padding: 12px 10px; gap: 9px; }
   .kpi-icon { width: 30px; height: 30px; font-size: 14px; border-radius: 8px; }
@@ -399,12 +371,10 @@ body { font-size: 15px; }
   .kpi-card strong { font-size: 16px; }
   .kpi-card small { font-size: 9px; }
 
-  /* Hero / lower / decision grids — single column */
+  /* Map card */
   .hero-grid, .lower-grid, .decision-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
   .chart-card, .weather-card, .risk-card, .task-card { min-height: auto; }
-
-  /* Map */
-  .map-stage { min-height: 240px; }
+  .map-stage { height: 280px; }
   .panel-header { padding: 13px 13px 10px; }
   .panel-header h2 { font-size: 14px; }
   .panel-header p { font-size: 10px; margin-top: 3px; }
@@ -415,26 +385,18 @@ body { font-size: 15px; }
   .legend-title { font-size: 8px; }
   .legend-labels { font-size: 7px; }
 
-  /* Insight card */
+  /* Insight */
   .insight-card { padding: 16px 14px; }
   .insight-card h2 { font-size: 16px; max-width: none; }
   .insight-copy { font-size: 11px; margin: 10px 0 14px; max-width: none; }
   .insight-facts { gap: 14px; margin-bottom: 14px; }
-  .source-note { font-size: 9px; }
 
-  /* Field table — card layout (no horizontal scroll) */
+  /* Field table */
   .field-table-head { display: none; }
   .field-status { overflow-x: visible; }
-  .field-table-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 2px 8px;
-    padding: 10px 12px;
-    min-height: auto; min-width: 0;
-  }
+  .field-table-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 10px 12px; min-height: auto; min-width: 0; }
   .field-name { grid-column: 1; grid-row: 1; font-size: 12px; }
   .field-name small { display: block; margin-top: 2px; font-size: 9px; }
-  /* Hide area and harvest columns — show only yield status */
   .field-table-row > span:nth-child(2) { display: none; }
   .field-table-row > strong { grid-column: 1; grid-row: 2; font-size: 11px; display: block; }
   .field-table-row > .table-status { grid-column: 1; grid-row: 3; font-size: 8px; margin-top: 2px; display: inline-block; }
@@ -446,10 +408,9 @@ body { font-size: 15px; }
   .chart-y { font-size: 7px; left: -29px; }
   .chart-x { font-size: 7px; }
 
-  /* Weather — show 3 days only */
+  /* Weather */
   .weather-list { grid-template-columns: repeat(3, 1fr); padding: 10px; gap: 6px; }
   .weather-day:nth-child(n+4) { display: none; }
-  .weather-day { font-size: 9px; gap: 6px; }
   .weather-alert { margin: 10px 12px; padding: 9px; }
 
   /* Economy */
@@ -463,36 +424,107 @@ body { font-size: 15px; }
   /* Location notice */
   .location-notice { padding: 9px 10px; margin-bottom: 10px; }
 
-  /* Risk */
-  .risk-row { padding: 9px 14px; }
-  .risk-label b { font-size: 11px; }
+  /* ── SETUP SCREEN ────────────────────────────────────────────────── */
+  .setup-shell { display: flex; flex-direction: column; min-height: 100vh; }
+  .setup-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #e1e9df; background: #fff; flex-shrink: 0; }
+  .setup-top .auth-brand { font-size: 18px; }
+  .setup-step { font-size: 9px; }
 
-  /* Tasks */
-  .task { margin: 0 14px; padding: 10px 0; }
-  .task b { font-size: 11px; }
+  /* content: flex column — map first, form second */
+  .setup-content {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0;
+    padding: 0 !important;
+    max-width: none;
+    margin: 0;
+    flex: 1;
+    overflow-y: auto;
+  }
 
-  /* ────────────────────────────────────────────────────────────────────
-     MODALS — full-width sheet from bottom
-  ──────────────────────────────────────────────────────────────────── */
+  /* MAP — always block, fixed height, first child */
+  .setup-map {
+    display: block !important;
+    order: 0;
+    flex-shrink: 0;
+    width: 100%;
+  }
+  .setup-map-stage {
+    width: 100%;
+    height: 300px !important;   /* fixed height so Yandex Maps sees offsetHeight */
+    position: relative;
+  }
+  .setup-map-stage .real-map {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .setup-map-note {
+    padding: 9px 14px;
+    background: #edf5e9;
+    border-bottom: 1px solid #d5e8cf;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #4d7d51;
+    flex-shrink: 0;
+  }
+  .setup-map-note:before {
+    content: '1. Нажимайте по границе поля. 2. Двойной тап — завершить контур.';
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0;
+  }
+
+  /* FORM — scrollable below map */
+  .setup-copy {
+    padding: 18px 16px 80px;
+    max-width: none;
+    flex: 1;
+  }
+  .setup-copy h1 { font-size: 24px; letter-spacing: -0.8px; margin: 8px 0 6px; }
+  .setup-copy h1 em { color: #70a760; font-style: normal; }
+  .setup-copy > p:not(.eyebrow) { font-size: 12px; line-height: 1.55; margin: 8px 0 14px; }
+
+  .company-found { padding: 11px 12px; margin-bottom: 14px; border-radius: 8px; gap: 10px; }
+  .company-found .company-badge { width: 32px; height: 32px; flex: 0 0 32px; }
+  .company-found b { font-size: 12px; }
+  .company-found small { font-size: 10px; }
+  .company-found i { display: none; }
+
+  .setup-form { display: flex; flex-direction: column; gap: 10px; margin-top: 0; }
+  .setup-form label { font-size: 12px; font-weight: 700; color: #4f6b59; }
+  .setup-form input, .setup-form select { display: block; width: 100%; min-height: 48px; margin-top: 6px; padding: 12px; border: 1px solid #d8e6d4; border-radius: 8px; font-size: 14px; color: #304f3b; background: #fff; outline-color: #72a66a; -webkit-appearance: none; }
+  .setup-add { min-height: 50px; border-radius: 8px; font-size: 14px; font-weight: 700; margin-top: 4px; }
+
+  .setup-fields { margin-top: 14px; gap: 8px; }
+  .setup-empty { font-size: 12px; padding: 14px 12px; line-height: 1.5; border-radius: 8px; }
+  .setup-field-row { padding: 12px; border-radius: 8px; }
+  .setup-field-row b { font-size: 13px; }
+  .setup-field-row small { font-size: 10px; }
+  .setup-field-row > button { font-size: 22px; min-height: 36px; width: 36px; }
+
+  /* Finish button — fixed to bottom */
+  .setup-finish {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    border-radius: 0; min-height: 58px;
+    font-size: 15px; font-weight: 700;
+    z-index: 10; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 20px;
+    box-shadow: 0 -2px 12px rgba(30,60,40,.15);
+  }
+  .setup-finish:disabled { opacity: .45; cursor: not-allowed; }
+  .setup-finish::after { content: '→'; font-size: 20px; }
+
+  /* ── Modals ──────────────────────────────────────────────────────── */
   .chat-overlay { padding: 0; align-items: flex-end; background: rgba(18,40,30,.6); }
-  .chat-panel {
-    width: 100%; max-height: 92vh;
-    border-radius: 18px 18px 0 0;
-    padding: 20px 16px 32px;
-    overflow-y: auto; -webkit-overflow-scrolling: touch;
-  }
-  /* Drag handle indicator */
-  .chat-panel::before {
-    content: ''; display: block;
-    width: 38px; height: 4px; border-radius: 2px;
-    background: #cad8c5; margin: 0 auto 18px;
-  }
+  .chat-panel { width: 100%; max-height: 92vh; border-radius: 18px 18px 0 0; padding: 20px 16px 32px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .chat-panel::before { content: ''; display: block; width: 38px; height: 4px; border-radius: 2px; background: #cad8c5; margin: 0 auto 18px; }
   .registration-panel, .utility-panel { width: 100%; }
   .close-chat { width: 42px; height: 42px; display: grid; place-items: center; font-size: 26px; top: 8px; right: 10px; }
   .chat-panel h2 { font-size: 20px; padding-right: 44px; }
   .ai-chat-panel { max-height: 92vh; }
   .ai-messages { max-height: min(210px, 28vh); }
-  .ai-suggestions button { padding: 8px 10px; font-size: 10px; min-height: 36px; }
   .ai-composer input { font-size: 14px; min-height: 42px; padding: 10px 8px; }
   .ai-composer button { width: 42px; height: 42px; font-size: 20px; }
   .modal-actions { flex-direction: column; gap: 8px; }
@@ -500,366 +532,48 @@ body { font-size: 15px; }
   .outline-button { min-height: 44px; font-size: 13px; padding: 11px 14px; }
   .form-input { min-height: 48px; font-size: 14px; padding: 12px 13px; }
   .form-label { font-size: 13px; margin-top: 16px; }
+  .field-editor-map-stage { height: 250px; }
 
-  /* Field info panel history */
-  .field-info-summary { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .field-analysis-history { max-height: 55vh; }
-
-  /* Risk details panel */
-  .risk-details-panel { width: 100%; }
-  .risk-detail-row { gap: 6px 14px; padding: 13px 0; }
-  .risk-detail-row b { font-size: 13px; }
-  .risk-detail-row span { font-size: 11px; }
-
-  /* ────────────────────────────────────────────────────────────────────
-     AUTH on mobile
-  ──────────────────────────────────────────────────────────────────── */
+  /* ── Auth ────────────────────────────────────────────────────────── */
   .auth-visual { display: none; }
   .auth-shell { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 24px 16px; }
-  .auth-card { width: 100%; max-width: none; padding: 28px 20px; margin: 0; border-radius: 14px; box-shadow: 0 8px 32px rgba(30,60,40,.12); }
+  .auth-card { width: 100%; max-width: none; padding: 28px 20px; margin: 0; border-radius: 14px; }
   .auth-card-head { margin-bottom: 28px; }
-  .auth-card-head:after { font-size: 9px; }
 
-  /* ────────────────────────────────────────────────────────────────────
-     SETUP on mobile
-  ──────────────────────────────────────────────────────────────────── */
-  .setup-top { flex-direction: column; gap: 8px; padding: 16px; align-items: flex-start; }
-  .setup-content { padding: 20px 14px 50px; }
-  .setup-copy h1 { font-size: 28px; letter-spacing: -1px; }
-  .setup-copy > p:not(.eyebrow) { font-size: 13px; margin: 14px 0 18px; }
-  .setup-map { display: none; }
-  .company-found { padding: 12px; }
-  .company-found i { display: none; }
-  .setup-field-row { padding: 10px; }
-  .setup-finish { min-height: 50px; font-size: 14px; }
-
-  /* Field editor map */
-  .field-editor-map-stage { height: 240px; }
-
-  /* Footer */
-  .page-footer { flex-direction: column; gap: 4px; font-size: 9px; }
-
-  /* Buttons — minimum tap target */
+  /* ── Touch targets ───────────────────────────────────────────────── */
   button { min-height: 36px; }
   .check-button { width: 26px; height: 26px; min-height: 26px; }
-  .sidebar-add-button { width: 32px; height: 32px; }
   .small-icon { width: 32px; height: 32px; }
   .text-button { min-height: 32px; padding: 4px 8px; }
+  .page-footer { flex-direction: column; gap: 4px; font-size: 9px; }
 }
 
-/* ── 480px: small phones ─────────────────────────────────────────────── */
+/* ── 480px ───────────────────────────────────────────────────────────── */
 @media (max-width: 480px) {
   .content-wrap { padding: 10px 10px 14px; }
   .topbar { padding: 0 10px; height: 50px; }
-  .topbar .breadcrumb { font-size: 10px; }
-
-  /* KPI tighter */
   .kpi-grid { gap: 6px; }
   .kpi-card { padding: 10px 8px; gap: 7px; }
   .kpi-icon { width: 27px; height: 27px; font-size: 13px; }
   .kpi-card p { font-size: 9px; }
   .kpi-card strong { font-size: 14px; }
   .kpi-card small { font-size: 8px; }
-
-  /* Panel headers */
   .panel-header { padding: 11px 10px 8px; }
   .panel-header h2 { font-size: 13px; }
-  .panel-header p { font-size: 9px; }
-
-  /* Map */
-  .map-stage { min-height: 210px; }
-  .layer-switcher button { padding: 5px 6px; font-size: 7px; }
-  .layer-legend { min-width: 140px; }
-
-  /* Bottom nav compact */
+  .map-stage { height: 240px; }
+  .setup-map-stage { height: 260px !important; }
   .sidebar { height: 60px; }
-  .sidebar-field-item { min-width: 54px; padding: 5px 7px; min-height: 46px; }
-  .field-list-main b { font-size: 9px; }
-  .mobile-nav-add { flex: 0 0 46px; height: 60px; font-size: 20px; }
-  .mobile-nav-avatar { flex: 0 0 50px; height: 60px; font-size: 10px; }
   body { padding-bottom: 60px; }
-
-  /* Weather */
+  .mobile-nav-add { flex: 0 0 46px; height: 60px; font-size: 20px; }
+  .mobile-nav-avatar { flex: 0 0 50px; height: 60px; }
   .weather-list { grid-template-columns: repeat(3, 1fr); padding: 8px; }
-  .weather-day b { font-size: 14px; }
-  .weather-day strong { font-size: 10px; }
-
-  /* Economy — 1 col on tiny screens */
   .economy-controls { grid-template-columns: 1fr; }
   .economy-strip { padding: 12px 10px; }
-
-  /* Chart */
   .line-chart { height: 110px; margin: 8px 10px 0 32px; }
-
-  /* Heading */
   .page-heading h1 { font-size: 18px; }
-
-  /* Auth */
-  .auth-card { padding: 22px 16px; }
-
-  /* Setup */
-  .setup-copy h1 { font-size: 24px; }
-  .setup-top { padding: 14px 12px; }
-}
-
-
-/* ══════════════════════════════════════════════════════════════════════
-   SETUP SCREEN — mobile overrides (полное переопределение)
-   ══════════════════════════════════════════════════════════════════════ */
-@media (max-width: 768px) {
-  /* Весь экран — flex-колонка, скроллится */
-  .setup-shell {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    background: #f5f8f2;
-    overflow-y: auto;
-  }
-
-  /* Шапка */
-  .setup-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 16px;
-    border-bottom: 1px solid #e1e9df;
-    background: #fff;
-    flex-shrink: 0;
-  }
-  .setup-top .auth-brand { font-size: 18px; }
-  .setup-step { font-size: 9px; letter-spacing: .8px; }
-
-  /* Контент — одна колонка: карта → форма */
-  .setup-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    padding: 0;
-    max-width: none;
-    margin: 0;
-  }
-
-  /* Карта — сверху, фиксированная высота, всегда видна */
-  .setup-map {
-    display: block !important; /* отменяем display:none из старых правил */
-    order: 0;
-    flex-shrink: 0;
-    width: 100%;
-  }
-  .setup-map-stage {
-    height: 280px;
-    position: relative;
-  }
-  .setup-map-stage .real-map {
-    position: absolute;
-    inset: 0;
-    height: 100%;
-  }
-  .setup-map-note {
-    padding: 10px 14px;
-    background: #edf5e9;
-    border-bottom: 1px solid #d5e8cf;
-    font-size: 10px;
-    line-height: 1.45;
-    color: #4d7d51;
-  }
-  .setup-map-note:before {
-    content: '1. Нажимайте по контуру поля. 2. Двойной тап завершает контур. 3. Город недоступен.';
-    display: block;
-    font-weight: 700;
-    margin-bottom: 0;
-  }
-
-  /* Форма — снизу, с паддингом и прокруткой */
-  .setup-copy {
-    order: 1;
-    padding: 20px 16px 80px; /* 80px снизу чтобы кнопка не перекрывала */
-    max-width: none;
-  }
-  .setup-copy h1 {
-    font-size: 24px;
-    letter-spacing: -.8px;
-    margin: 8px 0 6px;
-    line-height: 1.2;
-  }
-  .setup-copy h1 em { font-style: normal; color: #70a760; }
-  .setup-copy > p:not(.eyebrow) {
-    font-size: 12px;
-    line-height: 1.55;
-    margin: 8px 0 14px;
-    color: #7c9181;
-  }
-
-  /* Найденное ТОО */
-  .company-found {
-    padding: 11px 12px;
-    margin-bottom: 14px;
-    border-radius: 8px;
-    gap: 10px;
-  }
-  .company-found .company-badge { width: 32px; height: 32px; flex: 0 0 32px; font-size: 14px; }
-  .company-found b { font-size: 12px; }
-  .company-found small { font-size: 10px; }
-  .company-found i { display: none; }
-
-  /* Форма добавления поля */
-  .setup-form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 0;
-  }
-  .setup-form label {
-    font-size: 12px;
-    font-weight: 700;
-    color: #4f6b59;
-  }
-  .setup-form input,
-  .setup-form select {
-    display: block;
-    width: 100%;
-    min-height: 48px;
-    margin-top: 6px;
-    padding: 12px 12px;
-    border: 1px solid #d8e6d4;
-    border-radius: 8px;
-    font-size: 14px;
-    color: #304f3b;
-    background: #fff;
-    outline-color: #72a66a;
-    -webkit-appearance: none;
-  }
-  .setup-add {
-    min-height: 50px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 700;
-    margin-top: 4px;
-  }
-  .setup-error { font-size: 12px; color: #aa6251; }
-
-  /* Добавленные поля */
-  .setup-fields { margin-top: 14px; gap: 8px; }
-  .setup-empty {
-    font-size: 12px;
-    padding: 14px 12px;
-    line-height: 1.5;
-    border-radius: 8px;
-  }
-  .setup-field-row {
-    padding: 12px;
-    border-radius: 8px;
-    gap: 10px;
-  }
-  .setup-field-row b { font-size: 13px; }
-  .setup-field-row small { font-size: 10px; }
-  .setup-field-row button { font-size: 22px; min-height: 36px; width: 36px; }
-
-  /* Кнопка финиша — прибита к низу */
-  .setup-finish {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    border-radius: 0;
-    min-height: 58px;
-    font-size: 15px;
-    font-weight: 700;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
-    box-shadow: 0 -2px 12px rgba(30,60,40,.15);
-  }
-  .setup-finish:disabled { opacity: .45; cursor: not-allowed; }
-  .setup-finish::after { content: '→'; font-size: 20px; }
-}
-
-@media (max-width: 480px) {
-  .setup-map-stage { height: 240px; }
-  .setup-copy { padding: 16px 12px 70px; }
+  .setup-copy { padding: 16px 12px 80px; }
   .setup-copy h1 { font-size: 20px; }
-  .setup-form input, .setup-form select { min-height: 46px; font-size: 14px; }
-  .setup-add { min-height: 48px; }
   .setup-finish { min-height: 54px; font-size: 14px; padding: 0 16px; }
-}
-
-
-/* ══════════════════════════════════════════════════════════════════════
-   MAP CONTAINER — explicit heights at every level so Yandex Maps
-   always sees offsetHeight > 0 on init (fixes mobile blank map)
-   ══════════════════════════════════════════════════════════════════════ */
-
-/* Main dashboard map */
-.map-stage {
-  position: relative;
-  min-height: 300px;
-  height: 340px;
-}
-.map-stage .real-map {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-/* Setup screen map */
-.setup-map-stage {
-  position: relative;
-  height: 420px;
-  width: 100%;
-}
-.setup-map-stage .real-map {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-/* Field editor modal map */
-.field-editor-map-stage {
-  position: relative;
-  height: 300px;
-  overflow: hidden;
-  border-radius: 7px;
-  border: 1px solid #d9e6d5;
-  background: #dbe8d7;
-}
-.field-editor-map-stage .real-map {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-/* real-map itself — always block, no min-height fallback needed
-   (height comes from parent via absolute positioning) */
-.real-map {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.map-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #607c68;
-  background: #dce6d5;
-  font-size: 12px;
-  z-index: 0;
-}
-
-/* ── Mobile map heights ─────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .map-stage { height: 280px; min-height: 280px; }
-  .setup-map-stage { height: 300px; }
-  .field-editor-map-stage { height: 250px; }
-}
-
-@media (max-width: 480px) {
-  .map-stage { height: 240px; min-height: 240px; }
-  .setup-map-stage { height: 260px; }
+  .auth-card { padding: 22px 16px; }
   .field-editor-map-stage { height: 220px; }
 }
