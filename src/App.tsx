@@ -47,6 +47,13 @@ type FieldAnalytics = {
   chart: number[]
   action: string
 }
+type LayerName = 'NDVI' | 'NDWI' | 'Истинный цвет'
+
+const layerDetails: Record<LayerName, { title: string; description: string; unit: string }> = {
+  NDVI: { title: 'Состояние растительности', description: 'Плотность и активность зеленого покрова', unit: 'индекс 0–1' },
+  NDWI: { title: 'Влажность растений', description: 'Сигнал влаги в растительном покрове', unit: 'индекс 0–1' },
+  'Истинный цвет': { title: 'Истинный цвет', description: 'Естественный вид поля со спутникового снимка', unit: 'RGB-снимок' },
+}
 
 function getStoredUser(): UserRecord | null {
   try {
@@ -272,7 +279,7 @@ function App() {
   const [onboardingDone, setOnboardingDone] = useState(() => getStoredFields(getCompanyStorageKey()).length > 0)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [active, setActive] = useState('Обзор')
-  const [layer, setLayer] = useState('NDVI')
+  const [layer, setLayer] = useState<LayerName>('NDVI')
   const [chatOpen, setChatOpen] = useState(false)
   const [fieldInfoOpen, setFieldInfoOpen] = useState(false)
   const [taskDone, setTaskDone] = useState(false)
@@ -355,6 +362,17 @@ function App() {
     }
   }, [chartPeriod, selectedField, weatherItems])
   const chartValues = fieldAnalytics.chart
+  const optimization = useMemo(() => {
+    const fuelCost = Number(selectedField.fuelUsedL || 0) * Number(selectedField.fuelPricePerL || 0)
+    const fuelSaving = Math.round(fuelCost * 0.08)
+    const unplantedArea = Math.max(Number(selectedField.areaHa || 0) - Number(selectedField.plantedAreaHa || 0), 0)
+    const recommendations = [
+      ...(fuelCost > 0 ? [`Сгруппировать выезды техники: потенциальная экономия ${fuelSaving.toLocaleString('ru-RU')} ₸ по топливу`] : []),
+      ...(unplantedArea > 0 ? [`Проверить ${unplantedArea.toFixed(1)} га незасеянной площади до следующей операции`] : []),
+      ...(fieldAnalytics.averageRain < 20 ? ['Использовать сухое погодное окно для полевых работ'] : ['Перенести обработку на окно с минимальным риском осадков']),
+    ]
+    return { fuelSaving, recommendations }
+  }, [fieldAnalytics.averageRain, selectedField])
 
   const authenticate = (user: UserRecord) => {
     localStorage.setItem('smartagro-authenticated', 'true')
@@ -556,6 +574,14 @@ function App() {
             </div>
           </section>
 
+          <section className="optimization-panel panel" aria-labelledby="optimization-title">
+            <div className="optimization-heading">
+              <div><p className="eyebrow">ОПТИМИЗАЦИЯ</p><h2 id="optimization-title">Следующие шаги для экономии</h2><p>Расчёт обновляется для выбранного поля и текущего прогноза.</p></div>
+              <div className="optimization-saving"><span>Потенциал по топливу</span><strong>до {optimization.fuelSaving.toLocaleString('ru-RU')} ₸</strong></div>
+            </div>
+            <div className="optimization-list">{optimization.recommendations.map((recommendation, index) => <div className="optimization-item" key={recommendation}><span>{String(index + 1).padStart(2, '0')}</span><p>{recommendation}</p><b>→</b></div>)}</div>
+          </section>
+
           <section className="kpi-grid">
             <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
             <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Сумма по полям: ${fieldRecords.reduce((sum, field) => sum + field.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
@@ -573,8 +599,13 @@ function App() {
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
-                <div className="layer-switcher">{['NDVI', 'NDWI', 'Истинный цвет'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
+                <YandexFieldMap layer={layer} fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
+                <div className="layer-switcher" role="tablist" aria-label="Спутниковый слой">
+                  {(Object.keys(layerDetails) as LayerName[]).map((item) => <button role="tab" aria-selected={layer === item} className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}
+                </div>
+                <div className={`layer-caption layer-${layer === 'Истинный цвет' ? 'true-color' : layer.toLowerCase()}`}>
+                  <b>{layerDetails[layer].title}</b><span>{layerDetails[layer].description} · {layerDetails[layer].unit}</span>
+                </div>
               </div>
             </div>
 
@@ -803,11 +834,11 @@ function LocationNotice({ status, onRequest }: { status: 'idle' | 'loading' | 'r
   return <div className="location-notice"><span>⌖</span><div><b>{status === 'loading' ? 'Определяем местоположение…' : 'Уточните местоположение хозяйства'}</b><small>{status === 'denied' ? 'Доступ запрещен. Разрешите геолокацию в браузере и повторите.' : 'Это поможет искать поля рядом с вашим хозяйством точнее.'}</small></div>{status !== 'loading' && <button className="text-button" onClick={onRequest}>Определить →</button>}</div>
 }
 
-function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
+function YandexFieldMap({ layer = 'NDVI', fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { layer?: LayerName; fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<any>(null)
   const [loaded, setLoaded] = useState(false)
-  const mapDataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
+  const mapDataKey = JSON.stringify({ layer, fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_YANDEX_MAPS_API_KEY
@@ -838,6 +869,12 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         const areas = fieldAreas.length ? fieldAreas : draftFields.map((field) => field.areaHa)
         const boundaries = fieldBoundaries.length ? fieldBoundaries : draftFields.map((field) => field.boundary)
         const visibleFields = [...fields, ...customFields]
+        const layerColors = layer === 'NDWI'
+          ? ['#5c8fb8bb', '#68a9a0bb', '#87bd72bb']
+          : layer === 'Истинный цвет'
+            ? ['#c5a563bb', '#8bb174bb', '#6d9d62bb']
+            : ['#d3a94fbb', '#83ad5cbb', '#3f9159bb']
+        const layerValue = (index: number) => layer === 'Истинный цвет' ? 'естественный цвет' : layer === 'NDWI' ? (0.38 + index * 0.06).toFixed(2) : (0.58 + index * 0.04).toFixed(2)
         const availableZones = selectionMode ? regionBoundaries.map((coordinates, index) => ({ name: `Акмолинская область · зона ${index + 1}`, crop: 'Поле', coordinates })) : []
         const zoneObjects: Array<{ zone: typeof availableZones[number]; polygon: any }> = []
         let selectionMarker: any = null
@@ -861,7 +898,8 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
           const coordinates = boundaries[index] ?? squareCoordinates(selectedPoint, areas[index] ?? 20)
           const isSelected = name === selectedField
           const crop = selectionZones.find((field) => field.name === name)?.crop || draftFields.find((field) => field.name === name)?.crop || 'Поле'
-          const polygon = new yandex.Polygon([coordinates], { hintContent: `${getFieldNumber(name)} · ${crop}`, balloonContentHeader: `${getFieldNumber(name)} · ${name}`, balloonContentBody: `<b>Культура:</b> ${crop}<br/><b>NDVI:</b> ${(0.58 + index * 0.04).toFixed(2)}<br/><b>Статус:</b> ${index % 3 === 0 ? 'Высокое состояние' : 'Среднее состояние'}` }, { fillColor: isSelected ? '#2f8f5fbb' : `${getCropColor(crop)}aa`, strokeColor: isSelected ? '#ffffff' : '#edf6c9', strokeWidth: isSelected ? 4 : 2 })
+          const layerLabel = layer === 'Истинный цвет' ? 'RGB' : layer
+          const polygon = new yandex.Polygon([coordinates], { hintContent: `${getFieldNumber(name)} · ${crop}`, balloonContentHeader: `${getFieldNumber(name)} · ${name}`, balloonContentBody: `<b>Культура:</b> ${crop}<br/><b>${layerLabel}:</b> ${layerValue(index)}<br/><b>Статус:</b> ${index % 3 === 0 ? 'Высокое состояние' : 'Среднее состояние'}` }, { fillColor: isSelected ? layerColors[2] : layerColors[index % layerColors.length], strokeColor: isSelected ? '#ffffff' : '#edf6c9', strokeWidth: isSelected ? 4 : 2 })
           map.geoObjects.add(polygon)
           const polygonCenter = coordinates.reduce((total, point) => [total[0] + point[0] / coordinates.length, total[1] + point[1] / coordinates.length], [0, 0]) as [number, number]
           map.geoObjects.add(new yandex.Placemark(polygonCenter, { iconCaption: getFieldNumber(name), hintContent: `${name} · ${crop}` }, { preset: 'islands#greenStretchyIcon', iconColor: getCropColor(crop) }))
