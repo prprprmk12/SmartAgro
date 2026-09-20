@@ -47,68 +47,6 @@ type FieldAnalytics = {
   chart: number[]
   action: string
 }
-type LayerName = 'NDVI' | 'NDWI' | 'Истинный цвет'
-
-const layerDetails: Record<LayerName, { title: string; description: string; unit: string }> = {
-  NDVI: { title: 'Состояние растительности', description: 'Плотность и активность зеленого покрова', unit: 'индекс 0–1' },
-  NDWI: { title: 'Влажность растений', description: 'Сигнал влаги в растительном покрове', unit: 'индекс 0–1' },
-  'Истинный цвет': { title: 'Истинный цвет', description: 'Естественный вид поля со спутникового снимка', unit: 'RGB-снимок' },
-}
-
-/** Deterministic index value per field (seed from area + position) */
-function getFieldNdvi(areaHa: number, fieldIndex: number): number {
-  const seed = (Math.round(areaHa) * 7 + fieldIndex * 31) % 100
-  return Math.round((0.42 + (seed / 100) * 0.39) * 100) / 100
-}
-function getFieldNdwi(areaHa: number, fieldIndex: number): number {
-  const seed = (Math.round(areaHa) * 13 + fieldIndex * 17) % 100
-  return Math.round((-0.10 + (seed / 100) * 0.55) * 100) / 100
-}
-function getFieldIndexValue(layer: LayerName, areaHa: number, fieldIndex: number): string {
-  if (layer === 'Истинный цвет') return 'RGB'
-  if (layer === 'NDWI') return getFieldNdwi(areaHa, fieldIndex).toFixed(2)
-  return getFieldNdvi(areaHa, fieldIndex).toFixed(2)
-}
-function getFieldIndexStatus(layer: LayerName, areaHa: number, fieldIndex: number): string {
-  if (layer === 'Истинный цвет') return 'Визуальный снимок'
-  if (layer === 'NDWI') {
-    const v = getFieldNdwi(areaHa, fieldIndex)
-    return v > 0.2 ? 'Хорошая влажность' : v > 0 ? 'Умеренный водный стресс' : 'Высокий водный стресс'
-  }
-  const v = getFieldNdvi(areaHa, fieldIndex)
-  return v > 0.65 ? 'Высокое состояние' : v > 0.52 ? 'Среднее состояние' : 'Низкое состояние'
-}
-
-/** Interpolate two hex colors */
-function lerpHex(a: number, b: number, t: number) { return Math.round(a + (b - a) * t) }
-function ndviHexColor(t: number): string {
-  // orange → yellow → green
-  const r = t < 0.5 ? lerpHex(0xd3, 0xf0, t * 2) : lerpHex(0xf0, 0x3f, (t - 0.5) * 2)
-  const g = t < 0.5 ? lerpHex(0x83, 0xc0, t * 2) : lerpHex(0xc0, 0x91, (t - 0.5) * 2)
-  const b = t < 0.5 ? lerpHex(0x2a, 0x40, t * 2) : lerpHex(0x40, 0x59, (t - 0.5) * 2)
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-}
-function ndwiHexColor(t: number): string {
-  // sandy → teal → blue
-  const r = t < 0.5 ? lerpHex(0xc5, 0x6b, t * 2) : lerpHex(0x6b, 0x1e, (t - 0.5) * 2)
-  const g = t < 0.5 ? lerpHex(0xa0, 0xae, t * 2) : lerpHex(0xae, 0x6f, (t - 0.5) * 2)
-  const b = t < 0.5 ? lerpHex(0x50, 0xb5, t * 2) : lerpHex(0xb5, 0xa8, (t - 0.5) * 2)
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-}
-function getLayerHexColor(layer: LayerName, areaHa: number, fieldIndex: number): string {
-  if (layer === 'Истинный цвет') {
-    const palette = ['#b8a87a', '#94b86a', '#6e9e5e', '#c9b35a', '#80a96a']
-    return palette[fieldIndex % palette.length]
-  }
-  if (layer === 'NDWI') {
-    const v = getFieldNdwi(areaHa, fieldIndex)
-    const t = Math.max(0, Math.min(1, (v + 0.10) / 0.55))
-    return ndwiHexColor(t)
-  }
-  const v = getFieldNdvi(areaHa, fieldIndex)
-  const t = Math.max(0, Math.min(1, (v - 0.42) / 0.39))
-  return ndviHexColor(t)
-}
 
 function getStoredUser(): UserRecord | null {
   try {
@@ -334,7 +272,7 @@ function App() {
   const [onboardingDone, setOnboardingDone] = useState(() => getStoredFields(getCompanyStorageKey()).length > 0)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [active, setActive] = useState('Обзор')
-  const [layer, setLayer] = useState<LayerName>('NDVI')
+  const [layer, setLayer] = useState('NDVI')
   const [chatOpen, setChatOpen] = useState(false)
   const [fieldInfoOpen, setFieldInfoOpen] = useState(false)
   const [taskDone, setTaskDone] = useState(false)
@@ -417,17 +355,6 @@ function App() {
     }
   }, [chartPeriod, selectedField, weatherItems])
   const chartValues = fieldAnalytics.chart
-  const optimization = useMemo(() => {
-    const fuelCost = Number(selectedField.fuelUsedL || 0) * Number(selectedField.fuelPricePerL || 0)
-    const fuelSaving = Math.round(fuelCost * 0.08)
-    const unplantedArea = Math.max(Number(selectedField.areaHa || 0) - Number(selectedField.plantedAreaHa || 0), 0)
-    const recommendations = [
-      ...(fuelCost > 0 ? [`Сгруппировать выезды техники: потенциальная экономия ${fuelSaving.toLocaleString('ru-RU')} ₸ по топливу`] : []),
-      ...(unplantedArea > 0 ? [`Проверить ${unplantedArea.toFixed(1)} га незасеянной площади до следующей операции`] : []),
-      ...(fieldAnalytics.averageRain < 20 ? ['Использовать сухое погодное окно для полевых работ'] : ['Перенести обработку на окно с минимальным риском осадков']),
-    ]
-    return { fuelSaving, recommendations }
-  }, [fieldAnalytics.averageRain, selectedField])
 
   const authenticate = (user: UserRecord) => {
     localStorage.setItem('smartagro-authenticated', 'true')
@@ -629,14 +556,6 @@ function App() {
             </div>
           </section>
 
-          <section className="optimization-panel panel" aria-labelledby="optimization-title">
-            <div className="optimization-heading">
-              <div><p className="eyebrow">ОПТИМИЗАЦИЯ</p><h2 id="optimization-title">Следующие шаги для экономии</h2><p>Расчёт обновляется для выбранного поля и текущего прогноза.</p></div>
-              <div className="optimization-saving"><span>Потенциал по топливу</span><strong>до {optimization.fuelSaving.toLocaleString('ru-RU')} ₸</strong></div>
-            </div>
-            <div className="optimization-list">{optimization.recommendations.map((recommendation, index) => <div className="optimization-item" key={recommendation}><span>{String(index + 1).padStart(2, '0')}</span><p>{recommendation}</p><b>→</b></div>)}</div>
-          </section>
-
           <section className="kpi-grid">
             <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
             <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Сумма по полям: ${fieldRecords.reduce((sum, field) => sum + field.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
@@ -654,21 +573,8 @@ function App() {
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap layer={layer} fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
-                <div className="layer-switcher" role="tablist" aria-label="Спутниковый слой">
-                  {(Object.keys(layerDetails) as LayerName[]).map((item) => <button role="tab" aria-selected={layer === item} className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}
-                </div>
-                <div className={`layer-caption layer-${layer === 'Истинный цвет' ? 'true-color' : layer.toLowerCase()}`}>
-                  <b>{layerDetails[layer].title}</b>
-                  <span>{layerDetails[layer].description} · {layerDetails[layer].unit}</span>
-                  {layer !== 'Истинный цвет' && (
-                    <span className="layer-current-value">
-                      {layer}: <strong>{getFieldIndexValue(layer, selectedField.areaHa, fieldRecords.indexOf(selectedField))}</strong>
-                      {' '}· {getFieldIndexStatus(layer, selectedField.areaHa, fieldRecords.indexOf(selectedField))}
-                    </span>
-                  )}
-                </div>
-                <LayerScaleLegend layer={layer} />
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
+                <div className="layer-switcher">{['NDVI', 'NDWI', 'Истинный цвет'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
             </div>
 
@@ -897,42 +803,11 @@ function LocationNotice({ status, onRequest }: { status: 'idle' | 'loading' | 'r
   return <div className="location-notice"><span>⌖</span><div><b>{status === 'loading' ? 'Определяем местоположение…' : 'Уточните местоположение хозяйства'}</b><small>{status === 'denied' ? 'Доступ запрещен. Разрешите геолокацию в браузере и повторите.' : 'Это поможет искать поля рядом с вашим хозяйством точнее.'}</small></div>{status !== 'loading' && <button className="text-button" onClick={onRequest}>Определить →</button>}</div>
 }
 
-function LayerScaleLegend({ layer }: { layer: LayerName }) {
-  if (layer === 'Истинный цвет') {
-    return (
-      <div className="layer-scale-legend layer-scale-true-color" aria-label="Легенда слоя Истинный цвет">
-        <span className="scale-label">Натуральный RGB-снимок</span>
-        <div className="scale-swatches">
-          <span style={{ background: '#c9b35a' }} /><span style={{ background: '#94b86a' }} /><span style={{ background: '#6e9e5e' }} />
-        </div>
-        <span className="scale-caption">Почва · Растит. · Густой покров</span>
-      </div>
-    )
-  }
-  if (layer === 'NDWI') {
-    return (
-      <div className="layer-scale-legend layer-scale-ndwi" aria-label="Легенда шкалы NDWI">
-        <div className="scale-bar" style={{ background: 'linear-gradient(to right, #c5a050, #6baeb5, #1e6fa8)' }} />
-        <div className="scale-ticks"><span>−0.1</span><span>0.0</span><span>0.2</span><span>0.45</span></div>
-        <div className="scale-labels"><span>Сухо</span><span>Норма</span><span>Влажно</span></div>
-      </div>
-    )
-  }
-  // NDVI
-  return (
-    <div className="layer-scale-legend layer-scale-ndvi" aria-label="Легенда шкалы NDVI">
-      <div className="scale-bar" style={{ background: 'linear-gradient(to right, #d3832a, #f0c040, #3f9159)' }} />
-      <div className="scale-ticks"><span>0.0</span><span>0.3</span><span>0.6</span><span>1.0</span></div>
-      <div className="scale-labels"><span>Низкий</span><span>Средний</span><span>Высокий</span></div>
-    </div>
-  )
-}
-
-function YandexFieldMap({ layer = 'NDVI', fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { layer?: LayerName; fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
+function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<any>(null)
   const [loaded, setLoaded] = useState(false)
-  const mapDataKey = JSON.stringify({ layer, fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
+  const mapDataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_YANDEX_MAPS_API_KEY
@@ -963,15 +838,6 @@ function YandexFieldMap({ layer = 'NDVI', fields, customFields, selectedField, u
         const areas = fieldAreas.length ? fieldAreas : draftFields.map((field) => field.areaHa)
         const boundaries = fieldBoundaries.length ? fieldBoundaries : draftFields.map((field) => field.boundary)
         const visibleFields = [...fields, ...customFields]
-
-        // Deterministic per-field index values — use top-level helpers
-        const getFieldFillColor = (index: number, isSelected: boolean): string => {
-          const base = getLayerHexColor(layer, areas[index] ?? 20, index)
-          return isSelected ? `${base}ee` : `${base}bb`
-        }
-
-        const layerValue = (index: number): string => getFieldIndexValue(layer, areas[index] ?? 20, index)
-        const layerStatus = (index: number): string => getFieldIndexStatus(layer, areas[index] ?? 20, index)
         const availableZones = selectionMode ? regionBoundaries.map((coordinates, index) => ({ name: `Акмолинская область · зона ${index + 1}`, crop: 'Поле', coordinates })) : []
         const zoneObjects: Array<{ zone: typeof availableZones[number]; polygon: any }> = []
         let selectionMarker: any = null
@@ -995,21 +861,7 @@ function YandexFieldMap({ layer = 'NDVI', fields, customFields, selectedField, u
           const coordinates = boundaries[index] ?? squareCoordinates(selectedPoint, areas[index] ?? 20)
           const isSelected = name === selectedField
           const crop = selectionZones.find((field) => field.name === name)?.crop || draftFields.find((field) => field.name === name)?.crop || 'Поле'
-          const layerLabel = layer === 'Истинный цвет' ? 'RGB' : layer
-          const fillColor = getFieldFillColor(index, isSelected)
-          const indexVal = layerValue(index)
-          const status = layerStatus(index)
-          const polygon = new yandex.Polygon([coordinates], {
-            hintContent: `${getFieldNumber(name)} · ${crop} · ${layerLabel}: ${indexVal}`,
-            balloonContentHeader: `<b style="font-size:13px">${getFieldNumber(name)} · ${name}</b>`,
-            balloonContentBody: `
-              <table style="font-size:11px;line-height:1.6;border-collapse:collapse">
-                <tr><td style="color:#888;padding-right:8px">Культура</td><td><b>${crop}</b></td></tr>
-                <tr><td style="color:#888;padding-right:8px">Слой</td><td><b>${layerLabel}</b></td></tr>
-                ${layer !== 'Истинный цвет' ? `<tr><td style="color:#888;padding-right:8px">Значение</td><td><b>${indexVal}</b></td></tr>` : ''}
-                <tr><td style="color:#888;padding-right:8px">Статус</td><td><b>${status}</b></td></tr>
-              </table>`,
-          }, { fillColor, strokeColor: isSelected ? '#ffffff' : '#edf6c966', strokeWidth: isSelected ? 4 : 2 })
+          const polygon = new yandex.Polygon([coordinates], { hintContent: `${getFieldNumber(name)} · ${crop}`, balloonContentHeader: `${getFieldNumber(name)} · ${name}`, balloonContentBody: `<b>Культура:</b> ${crop}<br/><b>NDVI:</b> ${(0.58 + index * 0.04).toFixed(2)}<br/><b>Статус:</b> ${index % 3 === 0 ? 'Высокое состояние' : 'Среднее состояние'}` }, { fillColor: isSelected ? '#2f8f5fbb' : `${getCropColor(crop)}aa`, strokeColor: isSelected ? '#ffffff' : '#edf6c9', strokeWidth: isSelected ? 4 : 2 })
           map.geoObjects.add(polygon)
           const polygonCenter = coordinates.reduce((total, point) => [total[0] + point[0] / coordinates.length, total[1] + point[1] / coordinates.length], [0, 0]) as [number, number]
           map.geoObjects.add(new yandex.Placemark(polygonCenter, { iconCaption: getFieldNumber(name), hintContent: `${name} · ${crop}` }, { preset: 'islands#greenStretchyIcon', iconColor: getCropColor(crop) }))
@@ -1103,303 +955,7 @@ function YandexFieldMap({ layer = 'NDVI', fields, customFields, selectedField, u
     return () => { mapInstance.current?.destroy(); mapInstance.current = null }
   }, [mapDataKey])
 
-  const hasApiKey = !!import.meta.env.VITE_YANDEX_MAPS_API_KEY
-
-  if (!hasApiKey) {
-    return (
-      <SvgFieldMap
-        layer={layer}
-        fields={fields}
-        customFields={customFields}
-        selectedField={selectedField}
-        fieldPoints={fieldPoints}
-        fieldAreas={fieldAreas}
-        fieldBoundaries={fieldBoundaries}
-      />
-    )
-  }
-
   return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">Загрузка карты полей…</div>}</div>
-}
-
-/** SVG fallback map — renders when no Yandex API key is configured */
-function SvgFieldMap({
-  layer,
-  fields,
-  customFields,
-  selectedField,
-  fieldPoints = [],
-  fieldAreas = [],
-  fieldBoundaries = [],
-}: {
-  layer: LayerName
-  fields: string[]
-  customFields: string[]
-  selectedField?: string
-  fieldPoints?: Array<[number, number] | undefined>
-  fieldAreas?: number[]
-  fieldBoundaries?: Array<[number, number][] | undefined>
-}) {
-  const [tooltip, setTooltip] = useState<{ name: string; index: string; status: string; x: number; y: number } | null>(null)
-
-  const visibleFields = [...fields, ...customFields]
-
-  // Build demo polygons from coordinates/boundaries projected into SVG viewport
-  const W = 700
-  const H = 380
-
-  // Collect all real coordinates to compute bounds
-  const allCoords: [number, number][] = []
-  visibleFields.forEach((_, i) => {
-    const pt = fieldPoints[i]
-    const bnd = fieldBoundaries[i]
-    if (bnd && bnd.length >= 3) bnd.forEach((c) => allCoords.push(c))
-    else if (pt) allCoords.push(pt)
-  })
-
-  // Fallback demo layout if no real coordinates
-  const demoLayout: [number, number][][] = [
-    [[0.08, 0.10], [0.36, 0.08], [0.38, 0.42], [0.10, 0.44]],
-    [[0.41, 0.07], [0.70, 0.09], [0.72, 0.46], [0.43, 0.44]],
-    [[0.75, 0.08], [0.96, 0.10], [0.94, 0.50], [0.74, 0.48]],
-    [[0.08, 0.52], [0.38, 0.50], [0.36, 0.88], [0.09, 0.90]],
-    [[0.41, 0.52], [0.71, 0.50], [0.69, 0.87], [0.42, 0.89]],
-  ]
-
-  type FieldShape = { name: string; i: number; svgPoints: string; cx: number; cy: number }
-
-  const shapes: FieldShape[] = visibleFields.map((name, i) => {
-    const bnd = fieldBoundaries[i]
-    const pt = fieldPoints[i]
-    const area = fieldAreas[i] ?? 20
-
-    let poly: [number, number][]
-
-    if (bnd && bnd.length >= 3 && allCoords.length >= 2) {
-      // Project real lat/lon to SVG
-      const lats = allCoords.map((c) => c[0])
-      const lons = allCoords.map((c) => c[1])
-      const minLat = Math.min(...lats), maxLat = Math.max(...lats)
-      const minLon = Math.min(...lons), maxLon = Math.max(...lons)
-      const rangeX = maxLon - minLon || 0.01
-      const rangeY = maxLat - minLat || 0.01
-      const margin = 30
-      poly = bnd.map(([lat, lon]) => [
-        margin + ((lon - minLon) / rangeX) * (W - margin * 2),
-        H - margin - ((lat - minLat) / rangeY) * (H - margin * 2),
-      ] as [number, number])
-    } else if (pt && allCoords.length >= 2) {
-      const lats = allCoords.map((c) => c[0])
-      const lons = allCoords.map((c) => c[1])
-      const minLat = Math.min(...lats), maxLat = Math.max(...lats)
-      const minLon = Math.min(...lons), maxLon = Math.max(...lons)
-      const rangeX = maxLon - minLon || 0.01
-      const rangeY = maxLat - minLat || 0.01
-      const margin = 30
-      const sq = squareCoordinates(pt, area)
-      poly = sq.map(([lat, lon]) => [
-        margin + ((lon - minLon) / rangeX) * (W - margin * 2),
-        H - margin - ((lat - minLat) / rangeY) * (H - margin * 2),
-      ] as [number, number])
-    } else {
-      // Use demo layout
-      const template = demoLayout[i % demoLayout.length]
-      poly = template.map(([rx, ry]) => [rx * W, ry * H] as [number, number])
-    }
-
-    const svgPoints = poly.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
-    const cx = poly.reduce((s, [x]) => s + x, 0) / poly.length
-    const cy = poly.reduce((s, [, y]) => s + y, 0) / poly.length
-    return { name, i, svgPoints, cx, cy }
-  })
-
-  return (
-    <div className="svg-field-map">
-      {/* Satellite-style background */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        width="100%"
-        height="100%"
-        role="img"
-        aria-label={`Карта полей · слой ${layer}`}
-        style={{ display: 'block' }}
-        onMouseLeave={() => setTooltip(null)}
-      >
-        <defs>
-          <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#7a9e6a" />
-            <stop offset="45%" stopColor="#9ab87a" />
-            <stop offset="100%" stopColor="#c8d89a" />
-          </linearGradient>
-          {/* Grid lines for satellite feel */}
-          <pattern id="satGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
-          </pattern>
-          {shapes.map(({ name, i }) => {
-            const color = getLayerHexColor(layer, fieldAreas[i] ?? 20, i)
-            return (
-              <radialGradient key={`grad-${name}`} id={`fgrad-${i}`} cx="50%" cy="40%" r="60%">
-                <stop offset="0%" stopColor={color} stopOpacity="0.95" />
-                <stop offset="100%" stopColor={color} stopOpacity="0.65" />
-              </radialGradient>
-            )
-          })}
-        </defs>
-
-        {/* Background */}
-        <rect width={W} height={H} fill="url(#bgGrad)" />
-        <rect width={W} height={H} fill="url(#satGrid)" />
-
-        {/* Road lines for realism */}
-        <line x1="0" y1={H * 0.47} x2={W} y2={H * 0.48} stroke="rgba(240,230,180,0.5)" strokeWidth="7" />
-        <line x1={W * 0.39} y1="0" x2={W * 0.40} y2={H} stroke="rgba(240,230,180,0.4)" strokeWidth="5" />
-
-        {/* Field polygons */}
-        {shapes.map(({ name, i, svgPoints }) => {
-          const isSelected = name === selectedField
-          const color = getLayerHexColor(layer, fieldAreas[i] ?? 20, i)
-          const indexVal = getFieldIndexValue(layer, fieldAreas[i] ?? 20, i)
-          const status = getFieldIndexStatus(layer, fieldAreas[i] ?? 20, i)
-          return (
-            <polygon
-              key={name}
-              points={svgPoints}
-              fill={`url(#fgrad-${i})`}
-              stroke={isSelected ? '#ffffff' : 'rgba(255,255,255,0.5)'}
-              strokeWidth={isSelected ? 3 : 1.5}
-              strokeDasharray={isSelected ? undefined : undefined}
-              style={{ cursor: 'pointer', filter: isSelected ? 'drop-shadow(0 0 6px rgba(255,255,255,0.6))' : undefined }}
-              onMouseEnter={(e) => {
-                const rect = (e.currentTarget.closest('svg') as SVGSVGElement).getBoundingClientRect()
-                const svgEl = e.currentTarget.closest('svg') as SVGSVGElement
-                const pt = svgEl.createSVGPoint()
-                pt.x = e.clientX; pt.y = e.clientY
-                const local = pt.matrixTransform(svgEl.getScreenCTM()!.inverse())
-                setTooltip({ name, index: indexVal, status, x: local.x, y: local.y })
-                void rect
-              }}
-              aria-label={`${name} · ${layer}: ${indexVal} · ${status}`}
-            />
-          )
-        })}
-
-        {/* Zone-variance overlay — simulate spatial heterogeneity */}
-        {shapes.map(({ name, i, svgPoints, cx, cy }) => {
-          if (layer === 'Истинный цвет') return null
-          // Parse points back to find a "stress patch" in corner
-          const pts = svgPoints.split(' ').map((p) => p.split(',').map(Number) as [number, number])
-          if (pts.length < 3) return null
-          // Small stress patch in SE corner
-          const p0 = pts[Math.floor(pts.length * 0.6) % pts.length]
-          const p1 = pts[Math.floor(pts.length * 0.7) % pts.length]
-          const px = (p0[0] + p1[0] + cx) / 3
-          const py = (p0[1] + p1[1] + cy) / 3
-          const radius = Math.min(Math.abs(p1[0] - p0[0]), Math.abs(p1[1] - p0[1]), 18)
-          const stressColor = layer === 'NDWI' ? '#c5a050' : '#d3832a'
-          return (
-            <ellipse
-              key={`stress-${name}`}
-              cx={px}
-              cy={py}
-              rx={radius * 1.4}
-              ry={radius * 0.9}
-              fill={stressColor}
-              fillOpacity="0.35"
-              style={{ pointerEvents: 'none' }}
-            />
-          )
-        })}
-
-        {/* Field labels */}
-        {shapes.map(({ name, i, cx, cy }) => {
-          const indexVal = getFieldIndexValue(layer, fieldAreas[i] ?? 20, i)
-          const isSelected = name === selectedField
-          return (
-            <g key={`label-${name}`} style={{ pointerEvents: 'none' }}>
-              <rect
-                x={cx - 22}
-                y={cy - 11}
-                width={44}
-                height={22}
-                rx={4}
-                fill={isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.45)'}
-              />
-              <text
-                x={cx}
-                y={cy - 1}
-                textAnchor="middle"
-                fontSize="8.5"
-                fontWeight="700"
-                fill={isSelected ? '#2a4937' : '#fff'}
-                fontFamily="'DM Sans', sans-serif"
-              >
-                {getFieldNumber(name)}
-              </text>
-              {layer !== 'Истинный цвет' && (
-                <text
-                  x={cx}
-                  y={cy + 9}
-                  textAnchor="middle"
-                  fontSize="7"
-                  fill={isSelected ? '#4a7a55' : 'rgba(255,255,255,0.85)'}
-                  fontFamily="'DM Sans', sans-serif"
-                >
-                  {indexVal}
-                </text>
-              )}
-            </g>
-          )
-        })}
-
-        {/* Tooltip */}
-        {tooltip && (
-          <g style={{ pointerEvents: 'none' }}>
-            <rect
-              x={Math.min(tooltip.x + 8, W - 145)}
-              y={Math.max(tooltip.y - 48, 4)}
-              width={136}
-              height={42}
-              rx={5}
-              fill="rgba(26,46,34,0.93)"
-            />
-            <text
-              x={Math.min(tooltip.x + 16, W - 137)}
-              y={Math.max(tooltip.y - 30, 20)}
-              fontSize="9"
-              fontWeight="700"
-              fill="#e8f5d8"
-              fontFamily="'DM Sans', sans-serif"
-            >
-              {tooltip.name}
-            </text>
-            <text
-              x={Math.min(tooltip.x + 16, W - 137)}
-              y={Math.max(tooltip.y - 18, 32)}
-              fontSize="8"
-              fill="#a8c89a"
-              fontFamily="'DM Sans', sans-serif"
-            >
-              {layer}: {tooltip.index}
-            </text>
-            <text
-              x={Math.min(tooltip.x + 16, W - 137)}
-              y={Math.max(tooltip.y - 8, 42)}
-              fontSize="8"
-              fill="#a8c89a"
-              fontFamily="'DM Sans', sans-serif"
-            >
-              {tooltip.status}
-            </text>
-          </g>
-        )}
-
-        {/* Date watermark */}
-        <text x={W - 8} y={H - 6} textAnchor="end" fontSize="7" fill="rgba(255,255,255,0.45)" fontFamily="'DM Sans', sans-serif">
-          Demo · {new Date().toLocaleDateString('ru-RU')}
-        </text>
-      </svg>
-    </div>
-  )
 }
 
 function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (field: FieldRecord) => void }) {
