@@ -483,12 +483,6 @@ function App() {
           ))}
         </div>
 
-        {/* Mobile-only controls inside bottom nav */}
-        <button className="mobile-nav-add" onClick={openNewFieldEditor} aria-label="Добавить поле">＋</button>
-        <button className="mobile-nav-avatar" onClick={() => setProfileOpen(true)} aria-label="Профиль и выход">
-          <span className="mobile-nav-avatar-inner">{getInitials(agronomistName)}</span>
-        </button>
-
         <div className="sidebar-footer">
           <div className="data-status"><span className="status-dot" /><div><b>Данные сохранены</b><small>Поля и расходы · ручной ввод</small></div></div>
         </div>
@@ -497,15 +491,12 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">
-            <span className="breadcrumb-home">SmartAgro</span><b>/</b><strong>{selectedField?.name || active}</strong>
+            <span>Обзор</span><b>/</b><strong>{selectedField?.name || active}</strong>
           </div>
           <div className="top-actions">
             <span className="live-pill"><i /> Система работает</span>
-            <button className="icon-button" aria-label="Настройки" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
-            <button className="profile" onClick={() => setProfileOpen(true)}>
-              <span className="profile-name">{agronomistName}</span>
-              <span className="profile-avatar" aria-label="Профиль и выход">{getInitials(agronomistName)}</span>
-            </button>
+            <button className="icon-button" aria-label="Уведомления" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
+            <button className="profile" onClick={() => setProfileOpen(true)}>{agronomistName}<span className="profile-avatar">{getInitials(agronomistName)}</span></button>
           </div>
         </header>
 
@@ -539,9 +530,8 @@ function App() {
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} />
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
                 <div className="layer-switcher">{['NDVI', 'NDWI', 'Истинный цвет'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
-                <LayerLegend layer={layer} />
               </div>
             </div>
 
@@ -770,76 +760,15 @@ function LocationNotice({ status, onRequest }: { status: 'idle' | 'loading' | 'r
   return <div className="location-notice"><span>⌖</span><div><b>{status === 'loading' ? 'Определяем местоположение…' : 'Уточните местоположение хозяйства'}</b><small>{status === 'denied' ? 'Доступ запрещен. Разрешите геолокацию в браузере и повторите.' : 'Это поможет искать поля рядом с вашим хозяйством точнее.'}</small></div>{status !== 'loading' && <button className="text-button" onClick={onRequest}>Определить →</button>}</div>
 }
 
-function LayerLegend({ layer }: { layer: string }) {
-  if (layer === 'NDVI') {
-    return (
-      <div className="layer-legend" aria-label="Легенда NDVI">
-        <span className="legend-title">NDVI · Растительность</span>
-        <div className="legend-scale ndvi-scale" />
-        <div className="legend-labels"><span>0.2 Низкое</span><span>0.55 Среднее</span><span>0.9 Высокое</span></div>
-        <span className="legend-note">Demo snapshot · 19 сент 2026</span>
-      </div>
-    )
-  }
-  if (layer === 'NDWI') {
-    return (
-      <div className="layer-legend" aria-label="Легенда NDWI">
-        <span className="legend-title">NDWI · Водный стресс</span>
-        <div className="legend-scale ndwi-scale" />
-        <div className="legend-labels"><span>−0.3 Сухо</span><span>0.2 Норма</span><span>0.7 Влажно</span></div>
-        <span className="legend-note">Demo snapshot · 19 сент 2026</span>
-      </div>
-    )
-  }
-  return (
-    <div className="layer-legend" aria-label="Легенда Истинный цвет">
-      <span className="legend-title">Истинный цвет · видимый диапазон</span>
-      <div className="legend-scale truecolor-scale" />
-      <div className="legend-labels"><span>Поля</span><span>Культуры</span><span>Почва</span></div>
-      <span className="legend-note">Demo snapshot · 19 сент 2026</span>
-    </div>
-  )
-}
-
-function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer = 'NDVI' }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean; layer?: string }) {
+function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<any>(null)
   const [loaded, setLoaded] = useState(false)
-  const mapDataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones, layer })
+  const mapDataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_YANDEX_MAPS_API_KEY
     if (!mapRef.current || !apiKey) return
-
-    // Destroy previous instance first
-    if (mapInstance.current) {
-      try { mapInstance.current.destroy() } catch { /* ignore */ }
-      mapInstance.current = null
-    }
-    setLoaded(false)
-
-    const initMap = () => {
-      const yandex = (window as Window & { ymaps?: any }).ymaps
-      if (!yandex || !mapRef.current) return
-
-      // Wait until container has real dimensions (fixes mobile 0-height issue)
-      const container = mapRef.current
-      if (container.offsetHeight < 10) {
-        const ro = new ResizeObserver((entries) => {
-          for (const entry of entries) {
-            if (entry.contentRect.height >= 10) {
-              ro.disconnect()
-              drawMap()
-              return
-            }
-          }
-        })
-        ro.observe(container)
-        return
-      }
-      drawMap()
-    }
-
     const drawMap = () => {
       const yandex = (window as Window & { ymaps?: any }).ymaps
       if (!yandex || !mapRef.current || mapInstance.current) return
@@ -889,39 +818,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
           const coordinates = boundaries[index] ?? squareCoordinates(selectedPoint, areas[index] ?? 20)
           const isSelected = name === selectedField
           const crop = selectionZones.find((field) => field.name === name)?.crop || draftFields.find((field) => field.name === name)?.crop || 'Поле'
-          const ndviValue = 0.55 + index * 0.05 + (index % 2 === 0 ? 0.03 : -0.01)
-          const ndwiValue = 0.30 + index * 0.04 - (index % 3 === 0 ? 0.05 : 0)
-          let fillColor: string
-          let strokeColor: string
-          if (layer === 'NDVI') {
-            const t = Math.min(1, Math.max(0, (ndviValue - 0.2) / 0.7))
-            if (t < 0.5) {
-              const r = Math.round(220 - t * 2 * 70)
-              const g = Math.round(60 + t * 2 * 130)
-              fillColor = isSelected ? `#2f8f5fcc` : `rgba(${r},${g},30,0.72)`
-            } else {
-              const r = Math.round(150 - (t - 0.5) * 2 * 100)
-              const g = Math.round(190 + (t - 0.5) * 2 * 40)
-              fillColor = isSelected ? `#2f8f5fcc` : `rgba(${r},${g},30,0.72)`
-            }
-            strokeColor = isSelected ? '#ffffff' : '#b8df70'
-          } else if (layer === 'NDWI') {
-            const t = Math.min(1, Math.max(0, (ndwiValue + 0.3) / 1.0))
-            const r = Math.round(160 - t * 140)
-            const g = Math.round(100 + t * 100)
-            const b = Math.round(40 + t * 200)
-            fillColor = isSelected ? '#1a7fa8cc' : `rgba(${r},${g},${b},0.75)`
-            strokeColor = isSelected ? '#ffffff' : '#7ecfef'
-          } else {
-            fillColor = isSelected ? '#2f8f5fbb' : `${getCropColor(crop)}aa`
-            strokeColor = isSelected ? '#ffffff' : '#edf6c9'
-          }
-          const balloonBody = layer === 'NDVI'
-            ? `<b>Культура:</b> ${crop}<br/><b>NDVI:</b> ${ndviValue.toFixed(2)}<br/><b>Состояние:</b> ${ndviValue >= 0.6 ? 'Высокое' : ndviValue >= 0.45 ? 'Среднее' : 'Низкое'}<br/><small>Demo snapshot · 19 сент 2026</small>`
-            : layer === 'NDWI'
-            ? `<b>Культура:</b> ${crop}<br/><b>NDWI:</b> ${ndwiValue.toFixed(2)}<br/><b>Влажность:</b> ${ndwiValue >= 0.4 ? 'Достаточная' : ndwiValue >= 0.2 ? 'Умеренная' : 'Дефицит влаги'}<br/><small>Demo snapshot · 19 сент 2026</small>`
-            : `<b>Культура:</b> ${crop}<br/><b>Площадь:</b> ${areas[index] ?? 20} га<br/><b>Истинный цвет</b> · видимый диапазон<br/><small>Demo snapshot · 19 сент 2026</small>`
-          const polygon = new yandex.Polygon([coordinates], { hintContent: `${getFieldNumber(name)} · ${crop}`, balloonContentHeader: `${getFieldNumber(name)} · ${name}`, balloonContentBody: balloonBody }, { fillColor, strokeColor, strokeWidth: isSelected ? 4 : 2 })
+          const polygon = new yandex.Polygon([coordinates], { hintContent: `${getFieldNumber(name)} · ${crop}`, balloonContentHeader: `${getFieldNumber(name)} · ${name}`, balloonContentBody: `<b>Культура:</b> ${crop}<br/><b>NDVI:</b> ${(0.58 + index * 0.04).toFixed(2)}<br/><b>Статус:</b> ${index % 3 === 0 ? 'Высокое состояние' : 'Среднее состояние'}` }, { fillColor: isSelected ? '#2f8f5fbb' : `${getCropColor(crop)}aa`, strokeColor: isSelected ? '#ffffff' : '#edf6c9', strokeWidth: isSelected ? 4 : 2 })
           map.geoObjects.add(polygon)
           const polygonCenter = coordinates.reduce((total, point) => [total[0] + point[0] / coordinates.length, total[1] + point[1] / coordinates.length], [0, 0]) as [number, number]
           map.geoObjects.add(new yandex.Placemark(polygonCenter, { iconCaption: getFieldNumber(name), hintContent: `${name} · ${crop}` }, { preset: 'islands#greenStretchyIcon', iconColor: getCropColor(crop) }))
@@ -1003,35 +900,19 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
         setLoaded(true)
       })
     }
-
     const existing = document.querySelector('script[data-smartagro-yandex]')
-    if (existing) {
-      initMap()
-    } else {
+    if (existing) drawMap()
+    else {
       const script = document.createElement('script')
       script.dataset.smartagroYandex = 'true'
       script.src = `https://api-maps.yandex.ru/2.1/?apikey=${apiKey}&lang=ru_RU`
-      script.onload = initMap
+      script.onload = drawMap
       document.head.appendChild(script)
     }
-
-    return () => {
-      if (mapInstance.current) {
-        try { mapInstance.current.destroy() } catch { /* ignore */ }
-        mapInstance.current = null
-      }
-    }
+    return () => { mapInstance.current?.destroy(); mapInstance.current = null }
   }, [mapDataKey])
 
-  return (
-    <div
-      ref={mapRef}
-      className="real-map"
-      style={{ width: '100%', height: '100%', minHeight: 'inherit', display: 'block' }}
-    >
-      {!loaded && <div className="map-loading">Загрузка карты…</div>}
-    </div>
-  )
+  return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">Загрузка карты полей…</div>}</div>
 }
 
 function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (field: FieldRecord) => void }) {
@@ -1350,89 +1231,7 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
     setError('')
   }
 
-  return (
-    <div className="setup-shell">
-      <div className="setup-top">
-        <div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div>
-        <span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span>
-      </div>
-
-      <div className="setup-content">
-        {/* Map — shows on all screens */}
-        <div className="setup-map">
-          <div className="setup-map-stage">
-            <YandexFieldMap
-              fields={fields.map((field) => field.name)}
-              customFields={[]}
-              userLocation={userLocation}
-              fieldPoints={fields.map((field) => field.coordinates)}
-              fieldAreas={fields.map((field) => field.areaHa)}
-              fieldBoundaries={fields.map((field) => field.boundary)}
-              selectionZones={fields}
-              allowOnlyZones
-            />
-          </div>
-          <div className="setup-map-note" />
-        </div>
-
-        {/* Form */}
-        <div className="setup-copy">
-          <p className="eyebrow green-text">ТОО НАЙДЕНО</p>
-          <h1>Подключим поля<br /><em>к рабочему столу</em></h1>
-          <p>
-            ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}.
-            Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.
-          </p>
-
-          <div className="company-found">
-            <span className="company-badge">⌂</span>
-            <div>
-              <b>{company.name}</b>
-              <small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small>
-            </div>
-            <i>Найдено</i>
-          </div>
-
-          <div className="setup-form">
-            <label>Номер или название поля
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" />
-            </label>
-            <label>Что посадили
-              <select value={crop} onChange={(event) => setCrop(event.target.value)}>
-                <option>Пшеница</option>
-                <option>Ячмень</option>
-                <option>Лен</option>
-                <option>Рапс</option>
-                <option>Другая культура</option>
-              </select>
-            </label>
-            <label>Когда сеяли
-              <input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} />
-            </label>
-            <button className="setup-add" onClick={addField}>＋ Добавить поле</button>
-            {error && <small className="setup-error">{error}</small>}
-          </div>
-
-          <div className="setup-fields">
-            {fields.length === 0
-              ? <span className="setup-empty">Нарисуйте контур поля на карте, заполните данные и нажмите «Добавить»</span>
-              : fields.map((field, index) => (
-                <div className="setup-field-row" key={`${field.name}-${index}`}>
-                  <span className="field-health healthy" />
-                  <div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div>
-                  <button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button>
-                </div>
-              ))
-            }
-          </div>
-
-          <button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>
-            Сохранить поля и открыть рабочий стол
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return <div className="setup-shell"><div className="setup-top"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span></div><div className="setup-content"><div className="setup-copy"><p className="eyebrow green-text">ТОО НАЙДЕНО</p><h1>Подключим поля<br /><em>к рабочему столу</em></h1><p>ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}. Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.</p><div className="company-found"><span className="company-badge">⌂</span><div><b>{company.name}</b><small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small></div><i>Найдено</i></div><div className="setup-form"><label>Номер или название поля<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" /></label><label>Что посадили<select value={crop} onChange={(event) => setCrop(event.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label><label>Когда сеяли<input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} /></label><button className="setup-add" onClick={addField}>＋ Добавить поле</button>{error && <small className="setup-error">{error}</small>}</div><div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">Добавьте первое поле, чтобы продолжить</span> : fields.map((field, index) => <div className="setup-field-row" key={`${field.name}-${index}`}><span className="field-health healthy" /><div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button></div>)}</div><button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>Сохранить поля и открыть рабочий стол</button></div><div className="setup-map"><div className="setup-map-stage"><YandexFieldMap fields={fields.map((field) => field.name)} customFields={[]} userLocation={userLocation} fieldPoints={fields.map((field) => field.coordinates)} fieldAreas={fields.map((field) => field.areaHa)} /><div className="setup-map-note" /></div></div></div></div>
 }
 
 function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord) => void; onCompanySelected: (company: Company) => void }) {
