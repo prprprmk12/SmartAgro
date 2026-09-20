@@ -670,3 +670,80 @@ img, svg { max-width: 100%; }
   .chat-panel .modal-actions { bottom: -32px; }
   .setup-top { padding-top: calc(12px + env(safe-area-inset-top)); }
 }
+
+/* Final all-content mobile pass. Keep information visible; scroll only dense rows. */
+@media (max-width: 768px) {
+  html { overflow-x: hidden; }
+  body { overflow-x: hidden; overflow-y: auto; }
+  #root { width: 100%; overflow-x: hidden; }
+
+  .app-shell { width: 100%; min-height: 100dvh; }
+  .main-content { width: 100%; overflow: visible; }
+  .content-wrap { width: 100%; max-width: none; }
+  .page-heading > div:first-child { width: 100%; }
+  .page-heading h1, .muted { overflow-wrap: anywhere; }
+  .heading-actions { flex-direction: column; }
+  .heading-actions .secondary-action { display: block; width: 100%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .kpi-card { min-width: 0; align-items: flex-start; }
+  .kpi-card > div:last-child { min-width: 0; }
+  .kpi-card strong, .kpi-card small { overflow-wrap: anywhere; }
+
+  .map-card, .insight-card, .chart-card, .weather-card, .risk-card, .task-card,
+  .field-status, .economy-strip { width: 100%; }
+  .map-stage { height: clamp(240px, 68vw, 320px); min-height: 0; }
+  .layer-switcher { max-width: calc(100% - 18px); overflow-x: auto; scrollbar-width: none; }
+  .layer-switcher::-webkit-scrollbar { display: none; }
+  .layer-switcher button { flex: 0 0 auto; white-space: nowrap; }
+  .layer-legend { display: block; max-width: calc(100% - 16px); min-width: 0; }
+  .legend-labels { gap: 8px; }
+  .legend-labels span { white-space: nowrap; }
+
+  .weather-list {
+    display: flex; gap: 0; overflow-x: auto; justify-content: flex-start;
+    padding: 10px 8px 14px; scrollbar-width: thin;
+  }
+  .weather-day { flex: 0 0 64px; min-height: 90px; }
+  .weather-day:nth-child(n+4) { display: flex; }
+  .weather-alert { display: flex; align-items: flex-start; gap: 9px; }
+  .weather-alert > div { flex: 1; }
+
+  .field-status { overflow: hidden; }
+  .field-table-row { width: 100%; }
+  .economy-controls { min-width: 0; }
+  .economy-readonly, .economy-price, .economy-result { min-width: 0; }
+  .economy-result span { overflow-wrap: anywhere; }
+
+  /* Do not create a second scroll container during field onboarding. */
+  .setup-shell { min-height: 100dvh; height: auto; }
+  .setup-content { display: flex !important; flex: none; overflow: visible; height: auto; }
+  .setup-map-stage { height: clamp(240px, 72vw, 340px) !important; }
+  .setup-copy { width: 100%; flex: none; }
+  .setup-copy h1 { overflow-wrap: anywhere; }
+  .setup-form, .setup-fields { width: 100%; }
+  .setup-field-row { min-width: 0; }
+  .setup-field-row div { min-width: 0; }
+  .setup-field-row small { overflow-wrap: anywhere; }
+
+  /* Long field editor forms remain reachable from top to bottom. */
+  .chat-overlay { overflow: hidden; }
+  .chat-panel { max-height: min(94dvh, 900px); overscroll-behavior: contain; }
+  .field-editor-map-stage { height: clamp(220px, 62vw, 300px); }
+  .field-editor-grid, .field-coordinates { width: 100%; }
+  .field-photo-box input[type='file'] { min-height: 52px; }
+
+  .auth-shell { min-height: 100dvh; height: auto; overflow-y: visible; }
+  .auth-card { margin: 0; }
+}
+
+@media (max-width: 390px) {
+  .content-wrap { padding-right: 8px; padding-left: 8px; }
+  .kpi-card { padding-right: 7px; padding-left: 7px; gap: 6px; }
+  .kpi-card strong { font-size: 13px; }
+  .kpi-card small { font-size: 8px; }
+  .panel-header { padding-right: 9px; padding-left: 9px; }
+  .panel-header h2 { font-size: 12px; }
+  .map-actions .small-icon { width: 30px; height: 30px; }
+  .setup-copy { padding-right: 10px; padding-left: 10px; }
+  .chat-panel { padding-right: 14px; padding-left: 14px; }
+}
