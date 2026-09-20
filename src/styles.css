@@ -626,3 +626,47 @@ img, svg { max-width: 100%; }
   .location-notice .text-button { flex: 0 0 auto; }
   .photo-viewer-stage { min-height: 190px; }
 }
+
+/* Complete phone layout for long forms and compact dashboard cards. */
+@media (max-width: 768px) {
+  .main-content, .content-wrap, .panel, .panel-header > div { min-width: 0; }
+  .panel-header { gap: 10px; }
+  .panel-header > .text-button { flex: 0 0 auto; white-space: nowrap; }
+  .weather-alert, .company-preview, .settings-source { min-width: 0; }
+  .weather-alert div, .company-preview > div, .settings-source > div { min-width: 0; }
+  .weather-alert small, .company-preview small, .settings-source small,
+  .source-note, .field-editor-map > small { overflow-wrap: anywhere; }
+
+  .field-editor-grid, .field-coordinates { grid-template-columns: 1fr; }
+  .field-coordinates { gap: 0; }
+  .field-coordinates .form-label { grid-column: auto; }
+  .field-photo-box { margin: 14px 0; padding: 12px; }
+  .field-photo-box .outline-button { width: 100%; }
+  .field-editor-map { margin-top: 16px; }
+  .field-editor-map-title strong { font-size: 13px; }
+  .field-editor-map-title span { font-size: 11px; }
+  .external-data-note { min-height: 76px; }
+
+  .chat-panel.utility-panel { width: 100%; }
+  .chat-panel .modal-actions {
+    position: sticky; bottom: -32px; z-index: 2;
+    margin: 18px -16px -32px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: #f5f9f1; box-shadow: 0 -8px 14px rgba(38, 71, 51, .08);
+  }
+  .modal-actions .outline-button, .modal-actions .dark-button { width: 100%; }
+  .risk-detail-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; }
+  .risk-detail-row span { max-width: none; }
+
+  .setup-finish { bottom: env(safe-area-inset-bottom); }
+  .setup-copy { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .setup-map-note { padding-bottom: calc(9px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 480px) {
+  .heading-actions .outline-button { white-space: normal; }
+  .insight-facts { flex-direction: column; gap: 9px; }
+  .panel-header > .text-button { padding-right: 0; padding-left: 0; }
+  .field-photo-preview > div { width: calc(50% - 4px); height: 92px; }
+  .chat-panel .modal-actions { bottom: -32px; }
+  .setup-top { padding-top: calc(12px + env(safe-area-inset-top)); }
+}
