@@ -2,9 +2,12 @@
 
 :root { font-family: 'DM Sans', sans-serif; color: #24332d; background: #f4f6f2; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; overflow-x: hidden; }
+html { -webkit-text-size-adjust: 100%; }
 button, input, select { font: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+input, select { min-height: 44px; }
+@media (pointer: coarse) { button, .sidebar-field-item, .nav-item, .dark-button, .outline-button, .farm-switcher, .setup-add { min-height: 44px; } }
 .auth-shell { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(390px, .85fr); min-height: 100vh; background: #f5f8f2; }.auth-state { display: none; }
 .auth-visual { position: relative; display: flex; min-height: 100vh; flex-direction: column; overflow: hidden; padding: 38px 8vw 32px; color: #eff8e7; background: #193c31; }
 .auth-visual:before { content: ''; position: absolute; top: -120px; right: -90px; width: 440px; height: 440px; border: 1px solid rgba(179, 222, 135, .2); border-radius: 50%; box-shadow: 0 0 0 55px rgba(179, 222, 135, .04), 0 0 0 110px rgba(179, 222, 135, .03); }
@@ -52,7 +55,7 @@ button { cursor: pointer; }
 .weather-refresh { border: 0; cursor: pointer; }.utility-panel { width: min(430px, 100%); }.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; margin: 15px 0; border-top: 1px solid #e3ece0; border-bottom: 1px solid #e3ece0; }.setting-row b, .setting-row small { display: block; }.setting-row b { color: #446149; font-size: 10px; }.setting-row small { margin-top: 4px; color: #91a097; font-size: 8px; }.setting-row input { width: 34px; height: 18px; accent-color: #57945d; }.settings-source { display: flex; gap: 9px; align-items: center; margin: 21px 0; padding: 11px; border-radius: 6px; background: #edf5e9; }.settings-source b, .settings-source small { display: block; }.settings-source b { color: #4d7654; font-size: 9px; }.settings-source small { margin-top: 3px; color: #88a08a; font-size: 8px; }.profile-large { display: grid; place-items: center; width: 54px; height: 54px; margin-bottom: 18px; border-radius: 50%; color: #356044; background: #d5e4c4; font-size: 15px; font-weight: 800; }.profile-company { margin-top: -3px; color: #6d936b !important; font-weight: 700; }.profile-details { display: grid; gap: 10px; margin: 20px 0; }.profile-details span { display: flex; justify-content: space-between; gap: 15px; padding: 10px; border-radius: 6px; background: #edf5e9; }.profile-details small, .profile-details b { font-size: 9px; }.profile-details small { color: #91a097; }.profile-details b { color: #46644c; }.profile-button { width: 100%; }
 .report-preview { display: grid; gap: 8px; padding: 14px; margin: 18px 0; border-radius: 7px; background: #edf5e9; color: #5c765f; font-size: 10px; }.report-preview span { color: #78917b; font-size: 9px; }
 @media (max-width: 1100px) { .sidebar { width: 210px; flex-basis: 210px; }.content-wrap { padding: 28px 24px; }.topbar { padding: 0 24px; }.kpi-grid { grid-template-columns: repeat(2, 1fr); }.hero-grid, .lower-grid, .decision-grid { grid-template-columns: 1fr; }.insight-card { min-height: 0; }.economy-strip { grid-template-columns: 1fr 1fr; }.economy-result { border-left: 0; padding-left: 0; } }
-@media (max-width: 800px) { .auth-shell { display: block; }.auth-visual { min-height: 295px; padding: 25px 25px 22px; }.auth-visual-copy { margin: 38px 0 0; }.auth-visual-copy h1 { font-size: 37px; letter-spacing: -1.5px; }.auth-visual-copy > p:not(.eyebrow), .auth-proof { display: none; }.auth-mini-map { display: none; }.auth-card { width: min(520px, calc(100% - 28px)); margin: -22px auto 30px; padding: 28px 25px; position: relative; }.auth-card-head { margin-bottom: 35px; } }
+@media (max-width: 800px) { .auth-shell { display: block; }.auth-visual { min-height: 265px; padding: 22px 22px 18px; }.auth-visual-copy { margin: 26px 0 0; }.auth-visual-copy h1 { font-size: 32px; letter-spacing: -1.4px; }.auth-visual-copy > p:not(.eyebrow), .auth-proof { display: none; }.auth-mini-map { display: none; }.auth-card { width: min(520px, calc(100% - 24px)); margin: -16px auto 24px; padding: 24px 22px; position: relative; }.auth-card-head { margin-bottom: 28px; }.auth-card h2 { font-size: 24px; }.auth-subtitle { font-size: 12px; }.auth-note { font-size: 9px; } }
 @media (max-width: 700px) { .sidebar { position: fixed; z-index: 10; bottom: 0; left: 0; width: 100%; height: 62px; padding: 0 8px; flex-direction: row; align-items: center; }.brand, .farm-switcher, .nav-caption, .sidebar-footer, .nav-item:not(.active) { display: none; }.sidebar nav { display: flex; width: 100%; justify-content: space-around; }.sidebar nav .nav-item { display: flex; width: auto; padding: 9px; font-size: 0; }.sidebar nav .nav-item.active { display: grid; place-items: center; background: transparent; }.nav-icon { font-size: 19px; }.nav-dot { position: absolute; top: 5px; right: 4px; }.topbar { height: 60px; padding: 0 17px; }.live-pill, .profile { display: none; }.content-wrap { padding: 24px 14px 87px; }.page-heading { align-items: flex-start; flex-direction: column; gap: 17px; }.page-heading h1 { font-size: 23px; }.heading-actions { width: 100%; flex-direction: column; }.outline-button { align-self: stretch; }.kpi-grid { gap: 8px; }.kpi-card { padding: 12px 10px; gap: 8px; }.kpi-icon { width: 29px; height: 29px; font-size: 14px; }.kpi-card p { font-size: 8px; }.kpi-card strong { font-size: 15px; }.kpi-card small { font-size: 7px; }.panel-header { padding: 14px 14px 10px; }.map-stage { min-height: 310px; }.layer-switcher { left: 10px; right: auto; }.layer-switcher button { padding: 5px; font-size: 7px; }.map-legend { display: none; }.field-table-head, .field-table-row { min-width: 610px; }.field-status { overflow-x: auto; }.weather-list { padding-left: 6px; padding-right: 6px; }.weather-day { gap: 6px; }.weather-day:nth-child(n+5) { display: none; }.economy-strip { grid-template-columns: 1fr; gap: 16px; padding: 17px; }.economy-result { border-top: 1px solid #436652; padding-top: 14px; }.page-footer { flex-direction: column; gap: 7px; }.chat-panel { padding: 24px; }.modal-actions { flex-direction: column; } }
 .real-map { position: absolute; z-index: 1; inset: 0; }.map-loading { display: grid; place-items: center; height: 100%; color: #607c68; background: #dce6d5; font-size: 11px; }
 @media (max-width: 700px) { .economy-controls { grid-template-columns: 1fr; }.economy-strip { grid-template-columns: 1fr; } }
@@ -213,5 +216,41 @@ body { font-size: 15px; }
 	.kpi-card strong { font-size: 17px; }
 	.kpi-card small { font-size: 9px; }
 	.panel-header h2, .economy-strip h2 { font-size: 16px; }
-	.muted { font-size: 12px; }
+}
+
+@media (max-width: 480px) {
+	.auth-shell { grid-template-columns: 1fr; }
+	.auth-visual { min-height: 200px; padding: 18px 18px 16px; }
+	.auth-visual-copy { margin-top: 22px; }
+	.auth-visual-copy h1 { font-size: 28px; letter-spacing: -1.2px; }
+	.auth-brand { font-size: 18px; }
+	.auth-proof { gap: 12px; }
+	.auth-proof span { font-size: 10px; }
+	.auth-card { width: min(100%, calc(100% - 18px)); margin: -14px auto 18px; padding: 20px 16px 18px; }
+	.auth-card-head { margin-bottom: 20px; }
+	.auth-card h2 { font-size: 22px; }
+	.auth-subtitle { font-size: 11px; }
+	.auth-submit, .dark-button, .outline-button { min-height: 46px; }
+	.app-shell { min-height: 100dvh; }
+	.content-wrap { padding: 18px 12px 90px; }
+	.page-heading { gap: 12px; }
+	.page-heading h1 { font-size: 24px; }
+	.heading-actions { width: 100%; }
+	.kpi-grid { grid-template-columns: 1fr 1fr; }
+	.kpi-card { padding: 12px 10px; }
+	.panel-header { padding: 14px 12px 10px; }
+	.report-body, .field-status, .weather-list { overflow-x: auto; }
+	.chat-panel, .registration-panel, .utility-panel { width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 20px 16px 18px; }
+	.chat-panel h2 { font-size: 22px; }
+	.modal-actions { grid-template-columns: 1fr; }
+	.form-label { font-size: 12px; }
+	.form-input { min-height: 46px; font-size: 14px; }
+}
+
+@media (max-width: 360px) {
+	.auth-proof { display: none; }
+	.kpi-grid { grid-template-columns: 1fr; }
+	.page-heading h1 { font-size: 22px; }
+	.auth-card h2 { font-size: 24px; }
+	.chat-panel h2 { font-size: 20px; }
 }

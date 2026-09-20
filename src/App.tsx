@@ -37,6 +37,16 @@ type FieldAnalysis = {
 
 type Company = { id?: string; name: string; region: string; location: string; fields: string[] }
 type UserRecord = { id: string; name: string; email: string; companyId: string }
+type FieldAnalytics = {
+  droughtScore: number
+  dryWindScore: number
+  snowScore: number
+  plantedRatio: number
+  averageRain: number
+  daysSinceSowing: number
+  chart: number[]
+  action: string
+}
 
 function getStoredUser(): UserRecord | null {
   try {
@@ -250,6 +260,10 @@ function getFieldNumber(name: string) {
   return number ? `№${number}` : name
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
 function App() {
   const [selectedCompany, setSelectedCompany] = useState(getStoredCompany)
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('smartagro-authenticated') === 'true')
@@ -309,9 +323,38 @@ function App() {
     return { revenue, directCosts, margin, expectedHarvest }
   }, [selectedField])
 
-  const trend = [54, 57, 55, 61, 65, 63, 68, 72, 69, 73, 78, 75, 81, 84, 82, 86, 89, 87, 91, 88, 93]
-  const trend90 = [42, 44, 43, 46, 45, 49, 48, 51, 50, 54, 52, 55, 57, 56, 59, 61, 60, 63, 62, 65, 66, 64, 68, 67, 70, 69, 72, 71, 74, 73]
-  const chartValues = chartPeriod === '90' ? trend90 : trend
+  const fieldAnalytics = useMemo(() => {
+    const area = Math.max(Number(selectedField.areaHa) || 0, 1)
+    const plantedArea = Math.max(Number(selectedField.plantedAreaHa) || 0, 0)
+    const plantedRatio = clamp(plantedArea / area, 0, 1)
+    const actualYield = Math.max(Number(selectedField.yieldPerHa) || 0, 0)
+    const forecastYield = Math.max(Number(selectedField.yieldForecastT) || actualYield, 0)
+    const rainValues = weatherItems.map((item) => Number.parseFloat(item.rain) || 0)
+    const averageRain = rainValues.length ? rainValues.reduce((sum, value) => sum + value, 0) / rainValues.length : 0
+    const droughtScore = Math.round(clamp(42 + (35 - averageRain) * 0.45 + (1 - plantedRatio) * 22 - actualYield * 3, 8, 92))
+    const dryWindScore = Math.round(clamp(25 + (35 - averageRain) * 0.3 + Number(selectedField.fuelUsedL || 0) / area * 0.03, 8, 88))
+    const sowingDate = selectedField.sowingDate ? new Date(`${selectedField.sowingDate}T12:00:00`) : null
+    const daysSinceSowing = sowingDate && !Number.isNaN(sowingDate.getTime())
+      ? Math.max(0, Math.floor((Date.now() - sowingDate.getTime()) / 86400000))
+      : 0
+    const snowScore = Math.round(clamp(daysSinceSowing > 120 ? 10 : 22 - daysSinceSowing / 10, 6, 35))
+    const growthFactor = clamp((forecastYield || 2.4) / 2.8 * 0.72 + plantedRatio * 0.22 + (actualYield > 0 ? 0.06 : 0), 0.48, 1.08)
+    const baseTrend = chartPeriod === '90'
+      ? [42, 44, 43, 46, 45, 49, 48, 51, 50, 54, 52, 55, 57, 56, 59, 61, 60, 63, 62, 65, 66, 64, 68, 67, 70, 69, 72, 71, 74, 73]
+      : [54, 57, 55, 61, 65, 63, 68, 72, 69, 73, 78, 75, 81, 84, 82, 86, 89, 87, 91, 88, 93]
+    const chart = baseTrend.map((value) => Math.round(clamp(value * growthFactor, 20, 98)))
+    return {
+      droughtScore,
+      dryWindScore,
+      snowScore,
+      plantedRatio,
+      averageRain,
+      daysSinceSowing,
+      chart,
+      action: droughtScore >= 55 ? 'Проверить влажность почвы' : dryWindScore >= 50 ? 'Осмотреть юго-восточную зону' : 'Подготовить уборочную технику',
+    }
+  }, [chartPeriod, selectedField, weatherItems])
+  const chartValues = fieldAnalytics.chart
 
   const authenticate = (user: UserRecord) => {
     localStorage.setItem('smartagro-authenticated', 'true')
@@ -550,7 +593,7 @@ function App() {
                 </div>
                 <div>
                   <span className="fact-icon amber">!</span>
-                  <div><small>Следующее действие</small><b>Проверить {selectedField.crop}</b></div>
+                  <div><small>Следующее действие</small><b>{fieldAnalytics.action}</b></div>
                 </div>
               </div>
               <button className="dark-button" onClick={() => setChatOpen(true)}>Разобрать с AI-агентом <span>→</span></button>
@@ -590,7 +633,7 @@ function App() {
                   <option value="90">Последние 90 дней</option>
                 </select>
               </div>
-              <div className="chart-summary"><strong>{selectedField.yieldForecastT.toFixed(2)}</strong><span className="positive">↗ {(selectedField.yieldForecastT - selectedField.yieldPerHa).toFixed(2)}%</span><small>Средний прогноз урожайности</small></div>
+              <div className="chart-summary"><strong>{selectedField.yieldForecastT.toFixed(2)}</strong><span className={selectedField.yieldForecastT >= selectedField.yieldPerHa ? 'positive' : 'negative'}>↗ {(selectedField.yieldForecastT - selectedField.yieldPerHa).toFixed(2)} т/га</span><small>Прогноз на основе данных поля</small></div>
               <div className="line-chart">
                 <div className="chart-y"><span>1.0</span><span>0.75</span><span>0.50</span><span>0.25</span></div>
                 <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label="Динамика NDVI">
@@ -602,7 +645,7 @@ function App() {
                   </defs>
                   <path className="chart-area" d={makeAreaPath(chartValues)} />
                   <path className="chart-line" d={makeLinePath(chartValues)} />
-                  {chartValues.map((value, index) => <circle key={index} cx={index * 35} cy={180 - value * 1.55} r="3" />)}
+                  {chartValues.map((value, index) => <circle key={index} cx={index * 700 / Math.max(chartValues.length - 1, 1)} cy={180 - value * 1.55} r="3" />)}
                 </svg>
                 <div className="chart-x"><span>{chartPeriod === '90' ? '19 июн' : '18 авг'}</span><span>{chartPeriod === '90' ? '10 июл' : '25 авг'}</span><span>{chartPeriod === '90' ? '01 авг' : '01 сен'}</span><span>{chartPeriod === '90' ? '23 авг' : '08 сен'}</span><span>Сегодня</span></div>
               </div>
@@ -620,21 +663,21 @@ function App() {
                   </div>
                 ))}
               </div>
-              <div className="weather-alert"><span>◉</span><div><b>Окно для уборки</b><small>Данные обновляются по координатам хозяйства</small></div></div>
+              <div className="weather-alert"><span>◉</span><div><b>{fieldAnalytics.averageRain < 20 ? 'Сухое окно для уборки' : 'Следите за погодным окном'}</b><small>Средняя вероятность осадков: {Math.round(fieldAnalytics.averageRain)}% · данные по координатам хозяйства</small></div></div>
             </div>
           </section>
 
           <section className="decision-grid" id="risk-panel">
             <div className="risk-card panel">
-              <div className="panel-header"><div><h2>Климатические риски</h2><p>Оценка на ближайшие 10 дней</p></div><button className="text-button" onClick={() => setActive('Климатические риски')}>Все риски →</button></div>
-              <Risk label="Засуха" score="28" status="Низкий риск" width="28%" color="green" />
-              <Risk label="Суховей" score="41" status="Умеренный риск" width="41%" color="amber" />
-              <Risk label="Ранний снег" score="12" status="Низкий риск" width="12%" color="green" />
+              <div className="panel-header"><div><h2>Климатические риски</h2><p>Оценка по данным поля и прогнозу погоды</p></div><button className="text-button" onClick={() => setRiskOpen(true)}>Все риски →</button></div>
+              <Risk label="Засуха" score={String(fieldAnalytics.droughtScore)} status={fieldAnalytics.droughtScore >= 55 ? 'Высокий риск' : fieldAnalytics.droughtScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.droughtScore}%`} color={fieldAnalytics.droughtScore >= 55 ? 'red' : fieldAnalytics.droughtScore >= 35 ? 'amber' : 'green'} />
+              <Risk label="Суховей" score={String(fieldAnalytics.dryWindScore)} status={fieldAnalytics.dryWindScore >= 55 ? 'Высокий риск' : fieldAnalytics.dryWindScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.dryWindScore}%`} color={fieldAnalytics.dryWindScore >= 55 ? 'red' : fieldAnalytics.dryWindScore >= 35 ? 'amber' : 'green'} />
+              <Risk label="Ранний снег" score={String(fieldAnalytics.snowScore)} status={fieldAnalytics.snowScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.snowScore}%`} color={fieldAnalytics.snowScore >= 35 ? 'amber' : 'green'} />
             </div>
             <div className="task-card panel">
               <div className="panel-header"><div><h2>Следующие решения</h2><p>Рекомендации SmartAgro</p></div><button className="text-button" onClick={() => setActive('Решения')}>Календарь →</button></div>
-              <div className={taskDone ? 'task completed' : 'task'}><button className="check-button" onClick={() => setTaskDone(!taskDone)}>{taskDone ? '✓' : ''}</button><div><b>Осмотр юго-восточной зоны</b><small>{selectedField.name} · до 18 сентября</small></div><span className="priority">Важно</span></div>
-              <div className="task"><span className="calendar-icon">◷</span><div><b>Подготовить уборочную технику</b><small>Рекомендуемое окно · 20–23 сентября</small></div><span className="ready">Готово к плану</span></div>
+              <div className={taskDone ? 'task completed' : 'task'}><button className="check-button" onClick={() => setTaskDone(!taskDone)}>{taskDone ? '✓' : ''}</button><div><b>{fieldAnalytics.action}</b><small>{selectedField.name} · на основе текущих показателей</small></div><span className="priority">Важно</span></div>
+              <div className="task"><span className="calendar-icon">◷</span><div><b>Проверить прогноз перед работами</b><small>Осадки: {Math.round(fieldAnalytics.averageRain)}% · посеяно {Math.round(fieldAnalytics.plantedRatio * 100)}% площади</small></div><span className="ready">Готово к плану</span></div>
             </div>
           </section>
 
@@ -665,7 +708,7 @@ function App() {
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
       {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); setProfileOpen(false); setAuthenticated(false) }} />}
       {reportOpen && <ReportPanel company={selectedCompany.name} fields={fieldRecords.map((field) => field.name)} onClose={() => setReportOpen(false)} />}
-      {riskOpen && <RiskDetails onClose={() => setRiskOpen(false)} />}
+      {riskOpen && <RiskDetails field={selectedField} analytics={fieldAnalytics} onClose={() => setRiskOpen(false)} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
       {fieldInfoOpen && <FieldInfoPanel field={selectedField} onClose={() => setFieldInfoOpen(false)} />}
       {fieldEditorOpen && <FieldEditorModal field={editingFieldName ? fieldRecords.find((field) => field.name === editingFieldName) : undefined} existingFields={fieldRecords} onClose={closeFieldEditor} onSave={saveField} />}
@@ -698,13 +741,13 @@ function ReportPanel({ company, fields, onClose }: { company: string; fields: st
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТЫ</p><h2>Сводка хозяйства</h2><p>Отчет готов к выгрузке. В него войдут текущие показатели, поля и прогноз.</p><div className="report-preview"><b>{company}</b><span>{fields.length} полей · NDVI 0.68</span><span>Прогноз урожая · 2.84 т/га</span><span>Климатические риски · умеренные</span></div><button className="dark-button" onClick={download}>Скачать отчет <span>↓</span></button></div></div>
 }
 
-function RiskDetails({ onClose }: { onClose: () => void }) {
+function RiskDetails({ field, analytics, onClose }: { field: FieldRecord; analytics: FieldAnalytics; onClose: () => void }) {
   const risks = [
-    { name: 'Засуха', score: 28, status: 'Низкий риск', detail: 'Осадки и запас влаги пока не указывают на критический дефицит.' },
-    { name: 'Суховей', score: 41, status: 'Умеренный риск', detail: 'Следите за ветром и влажностью в ближайшие 10 дней.' },
-    { name: 'Ранний снег', score: 12, status: 'Низкий риск', detail: 'Сейчас погодное окно уборки остается благоприятным.' },
+    { name: 'Засуха', score: analytics.droughtScore, status: analytics.droughtScore >= 55 ? 'Высокий риск' : analytics.droughtScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Расчет учитывает среднюю вероятность осадков ${Math.round(analytics.averageRain)}% и долю засеянной площади.` },
+    { name: 'Суховей', score: analytics.dryWindScore, status: analytics.dryWindScore >= 55 ? 'Высокий риск' : analytics.dryWindScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Расчет учитывает расход топлива ${field.fuelUsedL} л и погодное окно для поля ${field.name}.` },
+    { name: 'Ранний снег', score: analytics.snowScore, status: analytics.snowScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Фаза культуры оценивается по дате сева: прошло ${analytics.daysSinceSowing} дней.` },
   ]
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel risk-details-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">КЛИМАТИЧЕСКИЕ РИСКИ · АКМОЛИНСКАЯ ОБЛАСТЬ</p><h2>Что требует внимания</h2><p>Индекс рассчитывается по погоде, осадкам и фазе культуры. Это ориентир для агронома, а не диагноз поля.</p>{risks.map((risk) => <div className="risk-detail-row" key={risk.name}><div><b>{risk.name}</b><span>{risk.detail}</span></div><strong>{risk.score}<small>/100</small></strong><em>{risk.status}</em></div>)}<button className="dark-button" onClick={onClose}>Понятно <span>✓</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel risk-details-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">КЛИМАТИЧЕСКИЕ РИСКИ · {field.name.toUpperCase()}</p><h2>Что требует внимания</h2><p>Индекс рассчитывается по данным агронома и текущему прогнозу. Это ориентир для агронома, а не диагноз поля.</p>{risks.map((risk) => <div className="risk-detail-row" key={risk.name}><div><b>{risk.name}</b><span>{risk.detail}</span></div><strong>{risk.score}<small>/100</small></strong><em>{risk.status}</em></div>)}<button className="dark-button" onClick={onClose}>Понятно <span>✓</span></button></div></div>
 }
 
 function FieldInfoPanel({ field, onClose }: { field: FieldRecord; onClose: () => void }) {
@@ -1131,18 +1174,18 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
         <div className="field-editor-grid">
           <label className="form-label">Посеяно, га<input className="form-input" type="number" step="0.1" value={draft.plantedAreaHa} onChange={(event) => updateField('plantedAreaHa', Number(event.target.value))} /></label>
           <label className="form-label">Площадь, га<input className="form-input" type="number" min="0.1" step="0.1" value={draft.areaHa} onChange={(event) => updateField('areaHa', Number(event.target.value))} /><small className="field-editor-hint">Расчётная площадь по контуру, доступна ручная корректировка</small></label>
-          <label className="form-label">Топливо, л<input className="form-input" type="number" step="1" value={draft.fuelUsedL} onChange={(event) => updateField('fuelUsedL', Number(event.target.value))} /></label>
-          <label className="form-label">Собрано, т<input className="form-input" type="number" step="0.1" value={draft.harvestTotalT} onChange={(event) => updateField('harvestTotalT', Number(event.target.value))} /></label>
+          <label className="form-label">Топливо, л<input className="form-input" type="number" step="1" value={draft.fuelUsedL || ''} placeholder="Не указано" onChange={(event) => updateField('fuelUsedL', Number(event.target.value))} /></label>
+          <label className="form-label">Собрано, т<input className="form-input" type="number" step="0.1" value={draft.harvestTotalT || ''} placeholder="Пока не собрано" onChange={(event) => updateField('harvestTotalT', Number(event.target.value))} /></label>
           <div className="external-data-note"><b>Урожайность и прогноз</b><span>{draft.yieldForecastT.toFixed(2)} т/га</span><small>Только внешний источник данных, редактирование агрономом отключено.</small></div>
           <label className="form-label">Цена топлива, ₸/л<input className="form-input" type="number" min="0" step="1" value={draft.fuelPricePerL} onChange={(event) => updateField('fuelPricePerL', Number(event.target.value))} /></label>
           <label className="form-label">Цена реализации, ₸/т<input className="form-input" type="number" min="0" step="1000" value={draft.grainPricePerT} onChange={(event) => updateField('grainPricePerT', Number(event.target.value))} /></label>
-          <label className="form-label">Семена, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.seedCost} onChange={(event) => updateField('seedCost', Number(event.target.value))} /></label>
-          <label className="form-label">Полив и вода, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.irrigationCost} onChange={(event) => updateField('irrigationCost', Number(event.target.value))} /></label>
-          <label className="form-label">Протрава и обработка, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.treatmentCost} onChange={(event) => updateField('treatmentCost', Number(event.target.value))} /></label>
-          <label className="form-label">Удобрения, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.fertilizerCost} onChange={(event) => updateField('fertilizerCost', Number(event.target.value))} /></label>
-          <label className="form-label">Техника и работы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.machineryCost} onChange={(event) => updateField('machineryCost', Number(event.target.value))} /></label>
-          <label className="form-label">Сушка и хранение, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.storageCost} onChange={(event) => updateField('storageCost', Number(event.target.value))} /></label>
-          <label className="form-label">Другие расходы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.otherCost} onChange={(event) => updateField('otherCost', Number(event.target.value))} /></label>
+          <label className="form-label">Семена, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.seedCost || ''} placeholder="Не указано" onChange={(event) => updateField('seedCost', Number(event.target.value))} /></label>
+          <label className="form-label">Полив и вода, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.irrigationCost || ''} placeholder="Не указано" onChange={(event) => updateField('irrigationCost', Number(event.target.value))} /></label>
+          <label className="form-label">Протрава и обработка, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.treatmentCost || ''} placeholder="Не указано" onChange={(event) => updateField('treatmentCost', Number(event.target.value))} /></label>
+          <label className="form-label">Удобрения, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.fertilizerCost || ''} placeholder="Не указано" onChange={(event) => updateField('fertilizerCost', Number(event.target.value))} /></label>
+          <label className="form-label">Техника и работы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.machineryCost || ''} placeholder="Не указано" onChange={(event) => updateField('machineryCost', Number(event.target.value))} /></label>
+          <label className="form-label">Сушка и хранение, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.storageCost || ''} placeholder="Не указано" onChange={(event) => updateField('storageCost', Number(event.target.value))} /></label>
+          <label className="form-label">Другие расходы, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.otherCost || ''} placeholder="Не указано" onChange={(event) => updateField('otherCost', Number(event.target.value))} /></label>
         </div>
 
         <div className="modal-actions">
@@ -1294,7 +1337,12 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
         body: JSON.stringify(requestBody),
       })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.error || 'Не удалось выполнить вход')
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Неверная почта или пароль. Для локального просмотра используйте демо-вход ниже.')
+        }
+        throw new Error(result.error || 'Не удалось выполнить вход')
+      }
       const authenticatedUser = result.user as UserRecord
       const userCompany = companyItems.find((item) => item.id === result.companyId || item._id === result.companyId)
       if (userCompany) {
@@ -1308,14 +1356,23 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
     } finally { setLoading(false) }
   }
 
-  return <div className="auth-shell"><div className="auth-visual"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><div className="auth-visual-copy"><p className="eyebrow">AI-АГРОНОМ ДЛЯ АКМОЛИНСКОЙ ОБЛАСТИ</p><h1>Видьте поле.<br /><em>Понимайте сезон.</em></h1><p>Один рабочий стол для агронома: карта полей, прогноз урожая, климатические риски и решения с понятным объяснением.</p><div className="auth-proof"><span>128 га</span><span>6 полей</span><span>87% уверенность</span></div></div><div className="auth-mini-map"><div className="mini-field mini-one" /><div className="mini-field mini-two" /><div className="mini-field mini-three" /><span>Акмолинская область · demo map</span></div></div><div className="auth-card"><div className="auth-card-head"><span className="auth-kicker">SMARTAGRO AI ADVISOR</span><span className="auth-state"><i /> MongoDB ready</span></div><h2>{isRegister ? 'Создайте рабочее место' : 'С возвращением'}</h2><p className="auth-subtitle">{isRegister ? 'Зарегистрируйте агронома и подключите сельскохозяйственное ТОО.' : 'Войдите, чтобы увидеть поля вашего хозяйства и рекомендации AI.'}</p>{isRegister && <label className="form-label">Имя агронома<input className="form-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Алексей М." /></label>}<label className="form-label">Рабочая почта<input className="form-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="agronom@company.kz" type="email" /></label>{isRegister && <><label className="form-label">Область<select className="form-input" value={region} onChange={(event) => setRegion(event.target.value)}><option value="Акмолинская область">Акмолинская область</option></select></label>  <label className="form-label">ТОО<select className="form-input" value={companyMode === 'new' ? 'new' : company} onChange={(event) => { const value = event.target.value; if (value === 'new') setCompanyMode('new'); else { setCompany(value); setCompanyMode(value) } }}><option value="new">Создать новое ТОО</option>{companies.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.location}</option>)}</select></label>{companyMode === 'new' && <><label className="form-label">Название ТОО<input className="form-input" value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Например, ТОО «Дала Агро»" /></label><label className="form-label">БИН ТОО<input className="form-input" value={companyBin} onChange={(event) => setCompanyBin(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="12 цифр" inputMode="numeric" /></label><label className="form-label">Населённый пункт<input className="form-input" value={companyLocation} onChange={(event) => setCompanyLocation(event.target.value)} placeholder="Например, Астана" /></label></>}</>} {isRegister && companyMode !== 'new' && <input type="hidden" value={company} readOnly />}<label className="form-label">Пароль<input className="form-input" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Введите пароль" type="password" /></label>{error && <div className="auth-error">{error}</div>}<button className="dark-button auth-submit" disabled={loading} onClick={submit}>{loading ? 'Подождите…' : isRegister ? 'Создать рабочее место' : 'Войти в систему'} <span>→</span></button><div className="auth-switch">{isRegister ? 'Уже есть аккаунт?' : 'Нет аккаунта?'} <button onClick={() => setMode(isRegister ? 'login' : 'register')}>{isRegister ? 'Войти' : 'Создать'}</button></div><small className="auth-note">Только работа с хозяйством и полями. AI не заменяет полный учёт агронома и не принимает решения вместо него.</small></div></div>
+  const demoLogin = () => {
+    const demoUser: UserRecord = { id: 'demo-user', name: 'Демо-агроном', email: 'demo@smartagro.local', companyId: 'demo-company' }
+    const demoCompany: Company = { id: 'demo-company', name: 'ТОО «Дала Агро»', region: 'Акмолинская область', location: 'Целиноградский район', fields: [] }
+    onCompanySelected(demoCompany)
+    onAuthenticated(demoUser)
+  }
+
+  return <div className="auth-shell"><div className="auth-visual"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><div className="auth-visual-copy"><p className="eyebrow">AI-АГРОНОМ ДЛЯ АКМОЛИНСКОЙ ОБЛАСТИ</p><h1>Видьте поле.<br /><em>Понимайте сезон.</em></h1><p>Один рабочий стол для агронома: карта полей, прогноз урожая, климатические риски и решения с понятным объяснением.</p><div className="auth-proof"><span>128 га</span><span>6 полей</span><span>87% уверенность</span></div></div><div className="auth-mini-map"><div className="mini-field mini-one" /><div className="mini-field mini-two" /><div className="mini-field mini-three" /><span>Акмолинская область · demo map</span></div></div><div className="auth-card"><div className="auth-card-head"><span className="auth-kicker">SMARTAGRO AI ADVISOR</span><span className="auth-state"><i /> MongoDB ready</span></div><h2>{isRegister ? 'Создайте рабочее место' : 'С возвращением'}</h2><p className="auth-subtitle">{isRegister ? 'Зарегистрируйте агронома и подключите сельскохозяйственное ТОО.' : 'Войдите, чтобы увидеть поля вашего хозяйства и рекомендации AI.'}</p>{isRegister && <label className="form-label">Имя агронома<input className="form-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Алексей М." /></label>}<label className="form-label">Рабочая почта<input className="form-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="agronom@company.kz" type="email" /></label>{isRegister && <><label className="form-label">Область<select className="form-input" value={region} onChange={(event) => setRegion(event.target.value)}><option value="Акмолинская область">Акмолинская область</option></select></label>  <label className="form-label">ТОО<select className="form-input" value={companyMode === 'new' ? 'new' : company} onChange={(event) => { const value = event.target.value; if (value === 'new') setCompanyMode('new'); else { setCompany(value); setCompanyMode(value) } }}><option value="new">Создать новое ТОО</option>{companies.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.location}</option>)}</select></label>{companyMode === 'new' && <><label className="form-label">Название ТОО<input className="form-input" value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Например, ТОО «Дала Агро»" /></label><label className="form-label">БИН ТОО<input className="form-input" value={companyBin} onChange={(event) => setCompanyBin(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="12 цифр" inputMode="numeric" /></label><label className="form-label">Населённый пункт<input className="form-input" value={companyLocation} onChange={(event) => setCompanyLocation(event.target.value)} placeholder="Например, Астана" /></label></>}</>} {isRegister && companyMode !== 'new' && <input type="hidden" value={company} readOnly />}<label className="form-label">Пароль<input className="form-input" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Введите пароль" type="password" /></label>{error && <div className="auth-error">{error}</div>}<button className="dark-button auth-submit" disabled={loading} onClick={submit}>{loading ? 'Подождите…' : isRegister ? 'Создать рабочее место' : 'Войти в систему'} <span>→</span></button>{!isRegister && <button type="button" className="demo-login" onClick={demoLogin}>Открыть демо-режим без авторизации</button>}<div className="auth-switch">{isRegister ? 'Уже есть аккаунт?' : 'Нет аккаунта?'} <button onClick={() => setMode(isRegister ? 'login' : 'register')}>{isRegister ? 'Войти' : 'Создать'}</button></div><small className="auth-note">Только работа с хозяйством и полями. AI не заменяет полный учёт агронома и не принимает решения вместо него.</small></div></div>
 }
 
 function RegistrationModal({ selectedCompany, setSelectedCompany, agronomistName, setAgronomistName, onClose, onAddField }: { selectedCompany: Company; setSelectedCompany: (company: Company) => void; agronomistName: string; setAgronomistName: (name: string) => void; onClose: () => void; onAddField: () => void }) {
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel registration-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="chat-icon">⌁</div><p className="eyebrow green-text">ПОДКЛЮЧЕНИЕ ХОЗЯЙСТВА</p><h2>Регистрация агронома</h2><p>Выберите ТОО из демонстрационного каталога Акмолинской области. Его поля появятся на карте автоматически.</p><label className="form-label">Ваше имя<input className="form-input" value={agronomistName} onChange={(event) => setAgronomistName(event.target.value)} placeholder="Имя и фамилия" /></label><label className="form-label">Сельскохозяйственное ТОО<select className="form-input" value={selectedCompany.name} onChange={(event) => { const company = demoCompanies.find((item) => item.name === event.target.value); if (company) setSelectedCompany(company) }}>{demoCompanies.map((company) => <option key={company.name} value={company.name}>{company.name} · {company.location}</option>)}</select></label><div className="company-preview"><div className="company-badge">⌂</div><div><b>{selectedCompany.name}</b><small>{selectedCompany.location} · найдено полей: {selectedCompany.fields.length}</small></div><span className="found-pill">Найдено</span></div><div className="registered-fields">{selectedCompany.fields.map((field) => <span key={field}>⌖ {field}</span>)}</div><div className="modal-actions"><button className="outline-button" onClick={onAddField}>＋ Обозначить поле</button><button className="dark-button" onClick={onClose}>Открыть хозяйство <span>→</span></button></div><small className="source-note">В production поиск будет подключен к реестру и кадастровым/GeoJSON-данным хозяйства.</small></div></div>
 }
 
-function makeLinePath(values: number[]) { return values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${index * 35} ${180 - value * 1.55}`).join(' ') }
+function makeLinePath(values: number[]) {
+  return values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${index * 700 / Math.max(values.length - 1, 1)} ${180 - value * 1.55}`).join(' ')
+}
 function makeAreaPath(values: number[]) { return `${makeLinePath(values)} L 700 180 L 0 180 Z` }
 
 export default App
