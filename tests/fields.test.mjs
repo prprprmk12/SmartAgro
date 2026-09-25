@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
+import { createServer as createHttpServer } from 'node:http'
 import { once } from 'node:events'
 import { test } from 'node:test'
 
@@ -10,9 +11,24 @@ await once(listener, 'listening')
 const port = listener.address().port
 await new Promise((resolve) => listener.close(resolve))
 
+let weatherUnavailable = false
+let requestedCoordinates = ''
+const weatherServer = createHttpServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost')
+  requestedCoordinates = `${url.searchParams.get('latitude')},${url.searchParams.get('longitude')}`
+  if (weatherUnavailable) { res.writeHead(503).end(); return }
+  const time = Array.from({ length: 7 }, (_, index) => new Date(Date.now() + index * 86400000).toISOString().slice(0, 10))
+  const daily = { time }
+  for (const key of ['temperature_2m_max', 'temperature_2m_min', 'precipitation_sum', 'precipitation_probability_max', 'wind_speed_10m_max', 'relative_humidity_2m_mean', 'weather_code']) daily[key] = time.map(() => 12)
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify({ daily }))
+})
+weatherServer.listen(0, '127.0.0.1')
+await once(weatherServer, 'listening')
+
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', MONGODB_URI: 'mongodb://127.0.0.1:1', PORT: String(port) },
+  env: { ...process.env, NODE_ENV: 'test', MONGODB_URI: 'mongodb://127.0.0.1:1', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}` },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -40,7 +56,7 @@ async function waitForServer() {
   throw new Error(`API did not become ready: ${serverOutput}`)
 }
 
-test('fields persist through login and stay isolated by company', { timeout: 35000 }, async () => {
+test('fields and weather stay isolated by company, including saved forecast fallback', { timeout: 45000 }, async () => {
   try {
     await waitForServer()
     const companies = (await request('/api/companies')).data
@@ -72,10 +88,27 @@ test('fields persist through login and stay isolated by company', { timeout: 350
     assert.deepEqual((await request('/api/fields', 'GET', second.token)).data, [])
     assert.equal((await request(`/api/fields/${created.data.id}`, 'PUT', second.token, field)).status, 404)
     assert.equal((await request(`/api/companies/${first.companyId}/fields`, 'GET', second.token)).status, 403)
+    const forecast = await request(`/api/weather?field_id=${created.data.id}`, 'GET', first.token)
+    assert.equal(forecast.status, 200)
+    assert.equal(forecast.data.days.length, 7)
+    assert.equal(forecast.data.status, 'current')
+    assert.equal(requestedCoordinates, '51.4,71.5')
+    assert.equal((await request(`/api/weather?field_id=${created.data.id}`, 'GET', second.token)).status, 404)
+    const chat = await request('/api/ai/chat', 'POST', first.token, { message: 'Какой прогноз урожая?', field: { id: created.data.id } })
+    assert.equal(chat.status, 200)
+    assert.match(chat.data.answer, /нет|не подключен/i)
+    assert.doesNotMatch(chat.data.answer, /2\.84/)
+    assert.equal((await request('/api/ai/chat', 'POST', second.token, { message: 'Какой урожай?', field: { id: created.data.id } })).status, 404)
+    weatherUnavailable = true
+    const savedForecast = await request(`/api/weather?field_id=${created.data.id}&refresh=1`, 'GET', first.token)
+    assert.equal(savedForecast.status, 200)
+    assert.equal(savedForecast.data.status, 'stale')
+    assert.equal(savedForecast.data.fetchedAt, forecast.data.fetchedAt)
     const bulk = await request('/api/fields/bulk', 'POST', first.token, [{ ...field, name: 'Second' }, { ...field, name: 'Third' }])
     assert.equal(bulk.status, 201)
     assert.equal((await request('/api/fields', 'GET', first.token)).data.length, 3)
   } finally {
     server.kill()
+    weatherServer.close()
   }
 })

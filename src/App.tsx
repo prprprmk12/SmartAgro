@@ -26,6 +26,7 @@ type FieldRecord = {
   fieldPhotos?: string[]
   photoAnalysis?: string
   analysisHistory?: FieldAnalysis[]
+  updatedAt?: string
 }
 
 type FieldAnalysis = {
@@ -39,16 +40,12 @@ type FieldAnalysis = {
 
 type Company = { id?: string; name: string; region: string; location: string; fields: string[] }
 type UserRecord = { id: string; name: string; email: string; companyId: string }
-type FieldAnalytics = {
-  droughtScore: number
-  dryWindScore: number
-  snowScore: number
-  plantedRatio: number
-  averageRain: number
-  daysSinceSowing: number
-  chart: number[]
-  action: string
-}
+type WeatherDay = { date: string; tempMaxC: number | null; tempMinC: number | null; precipitationMm: number | null; rainProbabilityPct: number | null; windMaxKmh: number | null; humidityPct: number | null; weatherCode: number | null }
+type WeatherForecast = { source: string; fetchedAt: string; status: 'current' | 'stale'; coordinates: [number, number]; days: WeatherDay[] }
+
+const actualYield = (field: FieldRecord) => field.harvestTotalT > 0 && field.plantedAreaHa > 0 ? field.harvestTotalT / field.plantedAreaHa : null
+const formatMeasurement = (value: number | null, unit: string) => value === null ? 'Нет данных' : `${value.toFixed(2)} ${unit}`
+const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : 'Дата не указана'
 
 function getStoredUser(): UserRecord | null {
   try {
@@ -294,7 +291,6 @@ function App() {
   const [layer, setLayer] = useState('NDVI')
   const [chatOpen, setChatOpen] = useState(false)
   const [fieldInfoOpen, setFieldInfoOpen] = useState(false)
-  const [taskDone, setTaskDone] = useState(false)
   const [agronomistName, setAgronomistName] = useState(() => getStoredUser()?.name || 'Агроном')
   const [fieldEditorOpen, setFieldEditorOpen] = useState(false)
   const [editingFieldName, setEditingFieldName] = useState<string | null>(null)
@@ -303,18 +299,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
-  const [riskOpen, setRiskOpen] = useState(false)
-  const [chartPeriod, setChartPeriod] = useState<'30' | '90'>('30')
-  const [weatherItems, setWeatherItems] = useState([
-    { day: 'Сегодня', icon: '☀', temp: '24°', rain: '0%' },
-    { day: 'Завтра', icon: '◒', temp: '26°', rain: '10%' },
-    { day: 'Ср, 18', icon: '☁', temp: '22°', rain: '45%' },
-    { day: 'Чт, 19', icon: '☀', temp: '25°', rain: '5%' },
-    { day: 'Пт, 20', icon: '☀', temp: '27°', rain: '3%' },
-    { day: 'Сб, 21', icon: '◒', temp: '23°', rain: '20%' },
-  ])
+  const [weather, setWeather] = useState<WeatherForecast | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
-  const [weatherSource, setWeatherSource] = useState('Demo snapshot')
+  const [weatherError, setWeatherError] = useState('')
+  const [weatherRefresh, setWeatherRefresh] = useState(0)
 
   const persistFields = (nextFields: FieldRecord[]) => {
     setFieldRecords(nextFields)
@@ -354,45 +342,10 @@ function App() {
     const fuelExpense = Number(selectedField.fuelUsedL || 0) * Number(selectedField.fuelPricePerL || 0)
     const agronomistCosts = ['seedCost', 'irrigationCost', 'treatmentCost', 'fertilizerCost', 'machineryCost', 'storageCost', 'otherCost']
       .reduce((sum, key) => sum + Number(selectedField[key as keyof FieldRecord] || 0), 0)
-    const expectedHarvest = Number(selectedField.yieldForecastT || selectedField.yieldPerHa || 0) * Number(selectedField.plantedAreaHa || selectedField.areaHa || 0)
-    const revenue = expectedHarvest * Number(selectedField.grainPricePerT || 0)
     const directCosts = fuelExpense + agronomistCosts
-    const margin = revenue - directCosts
-    return { revenue, directCosts, margin, expectedHarvest }
+    return { directCosts }
   }, [selectedField])
 
-  const fieldAnalytics = useMemo(() => {
-    const area = Math.max(Number(selectedField.areaHa) || 0, 1)
-    const plantedArea = Math.max(Number(selectedField.plantedAreaHa) || 0, 0)
-    const plantedRatio = clamp(plantedArea / area, 0, 1)
-    const actualYield = Math.max(Number(selectedField.yieldPerHa) || 0, 0)
-    const forecastYield = Math.max(Number(selectedField.yieldForecastT) || actualYield, 0)
-    const rainValues = weatherItems.map((item) => Number.parseFloat(item.rain) || 0)
-    const averageRain = rainValues.length ? rainValues.reduce((sum, value) => sum + value, 0) / rainValues.length : 0
-    const droughtScore = Math.round(clamp(42 + (35 - averageRain) * 0.45 + (1 - plantedRatio) * 22 - actualYield * 3, 8, 92))
-    const dryWindScore = Math.round(clamp(25 + (35 - averageRain) * 0.3 + Number(selectedField.fuelUsedL || 0) / area * 0.03, 8, 88))
-    const sowingDate = selectedField.sowingDate ? new Date(`${selectedField.sowingDate}T12:00:00`) : null
-    const daysSinceSowing = sowingDate && !Number.isNaN(sowingDate.getTime())
-      ? Math.max(0, Math.floor((Date.now() - sowingDate.getTime()) / 86400000))
-      : 0
-    const snowScore = Math.round(clamp(daysSinceSowing > 120 ? 10 : 22 - daysSinceSowing / 10, 6, 35))
-    const growthFactor = clamp((forecastYield || 2.4) / 2.8 * 0.72 + plantedRatio * 0.22 + (actualYield > 0 ? 0.06 : 0), 0.48, 1.08)
-    const baseTrend = chartPeriod === '90'
-      ? [42, 44, 43, 46, 45, 49, 48, 51, 50, 54, 52, 55, 57, 56, 59, 61, 60, 63, 62, 65, 66, 64, 68, 67, 70, 69, 72, 71, 74, 73]
-      : [54, 57, 55, 61, 65, 63, 68, 72, 69, 73, 78, 75, 81, 84, 82, 86, 89, 87, 91, 88, 93]
-    const chart = baseTrend.map((value) => Math.round(clamp(value * growthFactor, 20, 98)))
-    return {
-      droughtScore,
-      dryWindScore,
-      snowScore,
-      plantedRatio,
-      averageRain,
-      daysSinceSowing,
-      chart,
-      action: droughtScore >= 55 ? 'Проверить влажность почвы' : dryWindScore >= 50 ? 'Осмотреть юго-восточную зону' : 'Подготовить уборочную технику',
-    }
-  }, [chartPeriod, selectedField, weatherItems])
-  const chartValues = fieldAnalytics.chart
 
   const authenticate = (user: UserRecord, token?: string) => {
     localStorage.setItem('smartagro-authenticated', 'true')
@@ -454,7 +407,7 @@ function App() {
       storageCost: Number(nextField.storageCost || 0),
       otherCost: Number(nextField.otherCost || 0),
       yieldPerHa: Number(nextField.yieldPerHa || nextField.harvestTotalT / Math.max(nextField.plantedAreaHa || nextField.areaHa || 1, 1) || 0),
-      yieldForecastT: Number(nextField.yieldForecastT || nextField.yieldPerHa || 0),
+      yieldForecastT: Number(nextField.yieldForecastT || 0),
     }
 
     if (!isDemoUser()) {
@@ -488,30 +441,19 @@ function App() {
     }
   }
 
-  const refreshWeather = async () => {
+  useEffect(() => {
+    let cancelled = false
+    setWeather(null)
+    setWeatherError('')
+    if (!selectedField.id || !authenticated || isDemoUser()) { setWeatherLoading(false); return }
     setWeatherLoading(true)
-    const latitude = userLocation?.lat ?? 51.095
-    const longitude = userLocation?.lon ?? 71.47
-    try {
-      const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,precipitation_probability_max,weathercode&timezone=auto&forecast_days=6`)
-      if (!response.ok) throw new Error('weather')
-      const data = await response.json()
-      const labels = ['Сегодня', 'Завтра', 'Ср, 18', 'Чт, 19', 'Пт, 20', 'Сб, 21']
-      setWeatherItems(
-        data.daily.time.map((date: string, index: number) => ({
-          day: labels[index] ?? date.slice(5),
-          icon: data.daily.weathercode[index] > 60 ? '☁' : data.daily.weathercode[index] > 2 ? '◒' : '☀',
-          temp: `${Math.round(data.daily.temperature_2m_max[index])}°`,
-          rain: `${data.daily.precipitation_probability_max[index] ?? 0}%`,
-        })),
-      )
-      setWeatherSource('Open-Meteo · только что')
-    } catch {
-      setWeatherSource('Demo snapshot · сеть недоступна')
-    } finally {
-      setWeatherLoading(false)
-    }
-  }
+    fetch(`/api/weather?field_id=${encodeURIComponent(selectedField.id)}${weatherRefresh ? '&refresh=1' : ''}`, { headers: { Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` } })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Прогноз недоступен'); return data as WeatherForecast })
+      .then((data) => { if (!cancelled) setWeather(data) })
+      .catch((error) => { if (!cancelled) setWeatherError(error instanceof Error ? error.message : 'Прогноз недоступен') })
+      .finally(() => { if (!cancelled) setWeatherLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedField.id, selectedField.coordinates?.[0], selectedField.coordinates?.[1], weatherRefresh, authenticated])
 
   useEffect(() => {
     if (!authenticated || locationStatus !== 'idle') return
@@ -584,7 +526,7 @@ function App() {
               </div>
               <div className="field-list-meta">
                 <strong>{field.areaHa} га</strong>
-                <span>{field.yieldPerHa.toFixed(2)} т/га</span>
+                <span>{formatMeasurement(actualYield(field), 'т/га')}</span>
               </div>
             </button>
           ))}
@@ -624,8 +566,8 @@ function App() {
           <section className="kpi-grid">
             <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
             <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Сумма по полям: ${fieldRecords.reduce((sum, field) => sum + field.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
-            <KpiCard label="Урожайность" value={`${selectedField.yieldPerHa.toFixed(2)} т/га`} meta={`Прогноз: ${selectedField.yieldForecastT.toFixed(2)} т/га`} icon="✧" tone="blue" />
-            <KpiCard label="Прибыль" value={`${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`} meta={`Выручка ${Math.round(economics.revenue).toLocaleString('ru-RU')} ₸`} icon="₸" tone="orange" />
+            <KpiCard label="Фактическая урожайность" value={formatMeasurement(actualYield(selectedField), 'т/га')} meta={`Ввод агронома · ${formatDateTime(selectedField.updatedAt)}`} icon="✧" tone="blue" />
+            <KpiCard label="Ожидаемая маржа" value="Нет данных" meta="Требуется источник прогноза урожая" icon="₸" tone="orange" />
           </section>
 
           <section className="hero-grid" id="fields-map">
@@ -648,21 +590,20 @@ function App() {
               <p className="eyebrow green-text">AI SMART FARM INSIGHT</p>
               <h2>{selectedField.name} · прогноз по полю</h2>
               <p className="insight-copy">
-                На основании данных агронома по площади, операциям и расходам, а также внешнего прогноза урожайности,
-                AI оценивает итоговый доход и прибыль без вмешательства в ручной учёт.
+                Прогноз урожайности для этого поля ещё не подключён. После подключения проверяемого источника здесь появятся расчёт и его исходные данные.
               </p>
               <div className="insight-facts">
                 <div>
                   <span className="fact-icon">↗</span>
-                  <div><small>Прогноз урожая</small><b>{selectedField.yieldForecastT.toFixed(2)} т/га</b></div>
+                  <div><small>Прогноз урожая</small><b>Нет данных</b></div>
                 </div>
                 <div>
                   <span className="fact-icon amber">!</span>
-                  <div><small>Следующее действие</small><b>{fieldAnalytics.action}</b></div>
+                  <div><small>Рекомендация</small><b>Нужны данные поля</b></div>
                 </div>
               </div>
               <button className="dark-button" onClick={() => setChatOpen(true)}>Разобрать с AI-агентом <span>→</span></button>
-              <p className="source-note">Расходы и операции — ввод агронома · урожайность — внешний источник</p>
+              <p className="source-note">Расходы и сбор — ввод агронома · прогноз и индексы — источник не подключён</p>
             </div>
           </section>
 
@@ -670,7 +611,7 @@ function App() {
 
           <section className="field-status panel">
             <div className="panel-header">
-              <div><h2>Поля под контролем</h2><p>Параметры и расходы вводит агроном, урожайность приходит из внешнего источника</p></div>
+                <div><h2>Поля под контролем</h2><p>Параметры, собранный урожай и расходы — ввод агронома · дата обновления в паспорте поля</p></div>
               <button className="text-button" onClick={openNewFieldEditor}>＋ Добавить поле</button>
             </div>
             <div className="field-table-head"><span>Поле</span><span>Площадь</span><span>Собрано</span><span>Урожайность</span><span /></div>
@@ -679,10 +620,10 @@ function App() {
               const isActive = field.name === selectedField.name
               return (
                 <button className={isActive ? 'field-table-row active' : 'field-table-row'} key={`${field.name}-${index}`} onClick={() => setSelectedFieldName(field.name)}>
-                  <span className="field-name"><i className={field.yieldPerHa >= 2.2 ? 'field-health healthy' : 'field-health watch'} />{field.name}<small>{field.crop} · {field.sowingDate}</small></span>
+                  <span className="field-name"><i className="field-health healthy" />{field.name}<small>{field.crop} · сев {field.sowingDate} · обновлено {formatDateTime(field.updatedAt)}</small></span>
                   <span>{field.areaHa} га</span>
                   <strong>{harvest.toLocaleString('ru-RU')} т</strong>
-                  <span className={field.yieldPerHa >= 2.2 ? 'table-status healthy-text' : 'table-status watch-text'}>{field.yieldPerHa.toFixed(2)} т/га</span>
+                  <span className="table-status healthy-text">{formatMeasurement(actualYield(field), 'т/га')}</span>
                   <span className="row-arrow" onClick={(event) => { event.stopPropagation(); openFieldEditor(field.name) }}>✎</span>
                 </button>
               )
@@ -692,88 +633,66 @@ function App() {
           <section className="lower-grid" id="growth-chart">
             <div className="chart-card panel">
               <div className="panel-header">
-                <div><h2>Рост растений</h2><p>{selectedField.name} · {selectedField.crop} · {layer}</p></div>
-                <select aria-label="Период графика" value={chartPeriod} onChange={(event) => setChartPeriod(event.target.value as '30' | '90')}>
-                  <option value="30">Последние 30 дней</option>
-                  <option value="90">Последние 90 дней</option>
-                </select>
+                <div><h2>Рост растений</h2><p>{selectedField.name} · {selectedField.crop} · спутниковые индексы</p></div>
               </div>
-              <div className="chart-summary"><strong>{selectedField.yieldForecastT.toFixed(2)}</strong><span className={selectedField.yieldForecastT >= selectedField.yieldPerHa ? 'positive' : 'negative'}>↗ {(selectedField.yieldForecastT - selectedField.yieldPerHa).toFixed(2)} т/га</span><small>Прогноз на основе данных поля</small></div>
-              <div className="line-chart">
-                <div className="chart-y"><span>1.0</span><span>0.75</span><span>0.50</span><span>0.25</span></div>
-                <svg viewBox="0 0 700 180" preserveAspectRatio="none" role="img" aria-label="Динамика NDVI">
-                  <defs>
-                    <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0" stopColor="#94c79d" stopOpacity=".4" />
-                      <stop offset="1" stopColor="#94c79d" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path className="chart-area" d={makeAreaPath(chartValues)} />
-                  <path className="chart-line" d={makeLinePath(chartValues)} />
-                  {chartValues.map((value, index) => <circle key={index} cx={index * 700 / Math.max(chartValues.length - 1, 1)} cy={180 - value * 1.55} r="3" />)}
-                </svg>
-                <div className="chart-x"><span>{chartPeriod === '90' ? '19 июн' : '18 авг'}</span><span>{chartPeriod === '90' ? '10 июл' : '25 авг'}</span><span>{chartPeriod === '90' ? '01 авг' : '01 сен'}</span><span>{chartPeriod === '90' ? '23 авг' : '08 сен'}</span><span>Сегодня</span></div>
-              </div>
+              <div className="data-empty"><strong>Нет данных NDVI / NDWI</strong><span>Спутниковый источник не подключён. График появится после загрузки измерений с датами и указанием источника.</span></div>
             </div>
 
             <div className="weather-card panel">
               <div className="panel-header">
-                <div><h2>Погода</h2><p>Акмолинская область · {weatherSource}</p></div>
-                <button className="weather-current weather-refresh" onClick={refreshWeather} disabled={weatherLoading}>{weatherLoading ? 'Обновление…' : '↻ Обновить'}</button>
+                <div><h2>Погода · {selectedField.name}</h2><p>{weather ? `${weather.source} · получено ${formatDateTime(weather.fetchedAt)} · ${weather.status === 'stale' ? 'сохранённый прогноз' : 'актуальный запрос'} · ${weather.coordinates.join(', ')}` : weatherLoading ? 'Загрузка по координатам поля…' : weatherError || 'Нет данных для этого поля'}</p></div>
+                <button className="weather-current weather-refresh" onClick={() => setWeatherRefresh((value) => value + 1)} disabled={weatherLoading}>{weatherLoading ? 'Обновление…' : '↻ Обновить'}</button>
               </div>
-              <div className="weather-list">
-                {weatherItems.map((item, index) => (
-                  <div className={index === 0 ? 'weather-day today' : 'weather-day'} key={item.day}>
-                    <span>{item.day}</span><b>{item.icon}</b><strong>{item.temp}</strong><small>{item.rain}</small>
+              {weather && <div className="weather-list">
+                {weather.days.map((item, index) => (
+                  <div className={index === 0 ? 'weather-day today' : 'weather-day'} key={item.date} title={`Ветер ${item.windMaxKmh ?? '—'} км/ч · влажность ${item.humidityPct ?? '—'}%`}>
+                    <span>{new Date(`${item.date}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span><b>{item.weatherCode !== null && item.weatherCode >= 61 ? '☂' : '☀'}</b><strong>{item.tempMaxC === null ? '—' : `${Math.round(item.tempMaxC)}°`} / {item.tempMinC === null ? '—' : `${Math.round(item.tempMinC)}°`}</strong><small>{item.precipitationMm ?? '—'} мм · {item.rainProbabilityPct ?? '—'}%</small><small>Ветер {item.windMaxKmh ?? '—'} км/ч · влажность {item.humidityPct ?? '—'}%</small>
                   </div>
                 ))}
-              </div>
-              <div className="weather-alert"><span>◉</span><div><b>{fieldAnalytics.averageRain < 20 ? 'Сухое окно для уборки' : 'Следите за погодным окном'}</b><small>Средняя вероятность осадков: {Math.round(fieldAnalytics.averageRain)}% · данные по координатам хозяйства</small></div></div>
+              </div>}
+              {!weather && <div className="data-empty"><strong>{weatherLoading ? 'Загружаем прогноз…' : 'Нет погодных данных'}</strong><span>{weatherError || 'Добавьте координаты поля и обновите прогноз.'}</span></div>}
+              {weather?.status === 'stale' && <div className="weather-alert"><span>!</span><div><b>Open-Meteo временно недоступен</b><small>Показан сохранённый прогноз от {formatDateTime(weather.fetchedAt)}. Проверьте дату перед планированием работ.</small></div></div>}
             </div>
           </section>
 
           <section className="decision-grid" id="risk-panel">
             <div className="risk-card panel">
-              <div className="panel-header"><div><h2>Климатические риски</h2><p>Оценка по данным поля и прогнозу погоды</p></div><button className="text-button" onClick={() => setRiskOpen(true)}>Все риски →</button></div>
-              <Risk label="Засуха" score={String(fieldAnalytics.droughtScore)} status={fieldAnalytics.droughtScore >= 55 ? 'Высокий риск' : fieldAnalytics.droughtScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.droughtScore}%`} color={fieldAnalytics.droughtScore >= 55 ? 'red' : fieldAnalytics.droughtScore >= 35 ? 'amber' : 'green'} />
-              <Risk label="Суховей" score={String(fieldAnalytics.dryWindScore)} status={fieldAnalytics.dryWindScore >= 55 ? 'Высокий риск' : fieldAnalytics.dryWindScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.dryWindScore}%`} color={fieldAnalytics.dryWindScore >= 55 ? 'red' : fieldAnalytics.dryWindScore >= 35 ? 'amber' : 'green'} />
-              <Risk label="Ранний снег" score={String(fieldAnalytics.snowScore)} status={fieldAnalytics.snowScore >= 35 ? 'Умеренный риск' : 'Низкий риск'} width={`${fieldAnalytics.snowScore}%`} color={fieldAnalytics.snowScore >= 35 ? 'amber' : 'green'} />
+              <div className="panel-header"><div><h2>Климатические риски</h2><p>Индексы риска для выбранного поля</p></div></div>
+              <div className="data-empty"><strong>Нет оценки рисков</strong><span>Для расчёта нужны исторические данные и проверенная методика. Прогноз погоды сам по себе не является оценкой засухи или раннего снега.</span></div>
             </div>
             <div className="task-card panel">
-              <div className="panel-header"><div><h2>Следующие решения</h2><p>Рекомендации SmartAgro</p></div><button className="text-button" onClick={() => setActive('Решения')}>Календарь →</button></div>
-              <div className={taskDone ? 'task completed' : 'task'}><button className="check-button" onClick={() => setTaskDone(!taskDone)}>{taskDone ? '✓' : ''}</button><div><b>{fieldAnalytics.action}</b><small>{selectedField.name} · на основе текущих показателей</small></div><span className="priority">Важно</span></div>
-              <div className="task"><span className="calendar-icon">◷</span><div><b>Проверить прогноз перед работами</b><small>Осадки: {Math.round(fieldAnalytics.averageRain)}% · посеяно {Math.round(fieldAnalytics.plantedRatio * 100)}% площади</small></div><span className="ready">Готово к плану</span></div>
+              <div className="panel-header"><div><h2>Следующие решения</h2><p>Задачи и рекомендации · {selectedField.name}</p></div></div>
+              <div className="data-empty"><strong>Нет подтверждённых рекомендаций</strong><span>Даты работ и задачи появятся после подключения расчётов и операций по полю.</span></div>
             </div>
           </section>
 
           <section className="economy-strip panel" id="economy-panel">
             <div>
               <p className="eyebrow">ЭКОНОМИКА {selectedField.name.toUpperCase()}</p>
-              <h2>Базовый сценарий сезона</h2>
-              <p className="muted">Площадь {totalArea} га · учёт ведётся из данных агронома.</p>
+              <h2>Прямые затраты поля</h2>
+              <p className="muted">Площадь хозяйства {totalArea} га · расходы — ввод агронома, обновлено {formatDateTime(selectedField.updatedAt)}.</p>
             </div>
             <div className="economy-controls">
-              <div className="economy-readonly"><span>Урожайность и прогноз</span><strong>{selectedField.yieldForecastT.toFixed(2)} т/га</strong><small>Источник урожайности подключается отдельно</small></div>
+              <div className="economy-readonly"><span>Прогноз урожайности</span><strong>Нет данных</strong><small>Источник прогнозной урожайности не подключён</small></div>
               <label className="economy-price">Топливо, ₸/л<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, fuelPricePerL: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
               <label className="economy-price">Цена, ₸/т<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, grainPricePerT: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
             </div>
             <div className="economy-result">
-              <small>Ожидаемая прибыль</small>
-              <b className={economics.margin >= 0 ? 'margin-positive' : 'margin-negative'}>{Math.round(economics.margin).toLocaleString('ru-RU')} ₸</b>
-              <span>Выручка: {Math.round(economics.revenue).toLocaleString('ru-RU')} ₸</span>
+              <small>Ожидаемая маржа · нет данных</small>
+              <b>—</b>
+              <span>Выручка: нужен прогноз урожая</span>
               <span>Расходы: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸</span>
-              <span>Плановый объём: {economics.expectedHarvest.toFixed(2)} т</span>
+              <span>Ожидаемый сбор: нет данных</span>
             </div>
           </section>
 
-          <footer className="page-footer"><span>SmartAgro AI Advisor · ручной учёт полей</span><span>Погода и урожайность · demo snapshot до подключения источников</span></footer>
+          <footer className="page-footer"><span>SmartAgro AI Advisor · учёт полей и затрат</span><span>Погода · Open-Meteo; индексы и прогноз урожая не подключены</span></footer>
         </div>
       </main>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
       {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); localStorage.removeItem('smartagro-token'); setProfileOpen(false); setAuthenticated(false) }} />}
       {reportOpen && <ReportPanel company={selectedCompany.name} fields={fieldRecords.map((field) => field.name)} onClose={() => setReportOpen(false)} />}
-      {riskOpen && <RiskDetails field={selectedField} analytics={fieldAnalytics} onClose={() => setRiskOpen(false)} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
       {fieldInfoOpen && <FieldInfoPanel field={selectedField} onClose={() => setFieldInfoOpen(false)} />}
       {fieldEditorOpen && <FieldEditorModal field={editingFieldName ? fieldRecords.find((field) => field.name === editingFieldName) : undefined} existingFields={fieldRecords} onClose={closeFieldEditor} onSave={saveField} />}
@@ -794,7 +713,7 @@ function ProfilePanel({ name, company, onClose, onLogout }: { name: string; comp
 
 function ReportPanel({ company, fields, onClose }: { company: string; fields: string[]; onClose: () => void }) {
   const download = () => {
-    const report = `SmartAgro AI Advisor\n${company}\nПолей: ${fields.length}\nПрогноз урожая: 2.84 т/га\nСредний NDVI: 0.68\n`
+    const report = `SmartAgro AI Advisor\n${company}\nПолей: ${fields.length}\nПрогноз урожая: нет данных (источник не подключён)\nNDVI: нет данных (источник не подключён)\n`
     const blob = new Blob([report], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -803,17 +722,9 @@ function ReportPanel({ company, fields, onClose }: { company: string; fields: st
     link.click()
     URL.revokeObjectURL(url)
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТЫ</p><h2>Сводка хозяйства</h2><p>Отчет готов к выгрузке. В него войдут текущие показатели, поля и прогноз.</p><div className="report-preview"><b>{company}</b><span>{fields.length} полей · NDVI 0.68</span><span>Прогноз урожая · 2.84 т/га</span><span>Климатические риски · умеренные</span></div><button className="dark-button" onClick={download}>Скачать отчет <span>↓</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТЫ</p><h2>Сводка хозяйства</h2><div className="report-preview"><b>{company}</b><span>{fields.length} полей</span><span>Индексы и прогноз урожая: источники не подключены</span></div><button className="dark-button" onClick={download}>Скачать сводку <span>↓</span></button></div></div>
 }
 
-function RiskDetails({ field, analytics, onClose }: { field: FieldRecord; analytics: FieldAnalytics; onClose: () => void }) {
-  const risks = [
-    { name: 'Засуха', score: analytics.droughtScore, status: analytics.droughtScore >= 55 ? 'Высокий риск' : analytics.droughtScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Расчет учитывает среднюю вероятность осадков ${Math.round(analytics.averageRain)}% и долю засеянной площади.` },
-    { name: 'Суховей', score: analytics.dryWindScore, status: analytics.dryWindScore >= 55 ? 'Высокий риск' : analytics.dryWindScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Расчет учитывает расход топлива ${field.fuelUsedL} л и погодное окно для поля ${field.name}.` },
-    { name: 'Ранний снег', score: analytics.snowScore, status: analytics.snowScore >= 35 ? 'Умеренный риск' : 'Низкий риск', detail: `Фаза культуры оценивается по дате сева: прошло ${analytics.daysSinceSowing} дней.` },
-  ]
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel risk-details-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">КЛИМАТИЧЕСКИЕ РИСКИ · {field.name.toUpperCase()}</p><h2>Что требует внимания</h2><p>Индекс рассчитывается по данным агронома и текущему прогнозу. Это ориентир для агронома, а не диагноз поля.</p>{risks.map((risk) => <div className="risk-detail-row" key={risk.name}><div><b>{risk.name}</b><span>{risk.detail}</span></div><strong>{risk.score}<small>/100</small></strong><em>{risk.status}</em></div>)}<button className="dark-button" onClick={onClose}>Понятно <span>✓</span></button></div></div>
-}
 
 function FieldInfoPanel({ field, onClose }: { field: FieldRecord; onClose: () => void }) {
   const history = [...(field.analysisHistory ?? [])].reverse()
@@ -843,11 +754,10 @@ function AIChat({ field, onClose }: { field: FieldRecord; onClose: () => void })
     try {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` },
         body: JSON.stringify({
           message: text,
-          field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, photoAnalysis: field.photoAnalysis },
-          analysisHistory: (field.analysisHistory ?? []).map((entry) => ({ createdAt: entry.createdAt, analysis: entry.analysis })),
+          field: { id: field.id },
         }),
       })
       const result = await response.json()
@@ -1035,7 +945,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
     grainPricePerT: 85000,
     harvestTotalT: 0,
     yieldPerHa: 0,
-    yieldForecastT: 2.4,
+    yieldForecastT: 0,
     seedCost: 0,
     irrigationCost: 0,
     treatmentCost: 0,
@@ -1186,7 +1096,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
       grainPricePerT: Number(draft.grainPricePerT || 0),
       harvestTotalT: Number(draft.harvestTotalT || 0),
       yieldPerHa: Number(draft.yieldPerHa || draft.harvestTotalT / Math.max(draft.plantedAreaHa || draft.areaHa || 1, 1) || 0),
-      yieldForecastT: Number(draft.yieldForecastT || draft.yieldPerHa || 0),
+      yieldForecastT: Number(draft.yieldForecastT || 0),
       seedCost: Number(draft.seedCost || 0),
       irrigationCost: Number(draft.irrigationCost || 0),
       treatmentCost: Number(draft.treatmentCost || 0),
@@ -1245,7 +1155,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
           <label className="form-label">Площадь, га<input className="form-input" type="number" min="0.1" step="0.1" value={draft.areaHa} onChange={(event) => updateField('areaHa', Number(event.target.value))} /><small className="field-editor-hint">Расчётная площадь по контуру, доступна ручная корректировка</small></label>
           <label className="form-label">Топливо, л<input className="form-input" type="number" step="1" value={draft.fuelUsedL || ''} placeholder="Не указано" onChange={(event) => updateField('fuelUsedL', Number(event.target.value))} /></label>
           <label className="form-label">Собрано, т<input className="form-input" type="number" step="0.1" value={draft.harvestTotalT || ''} placeholder="Пока не собрано" onChange={(event) => updateField('harvestTotalT', Number(event.target.value))} /></label>
-          <div className="external-data-note"><b>Урожайность и прогноз</b><span>{draft.yieldForecastT.toFixed(2)} т/га</span><small>Только внешний источник данных, редактирование агрономом отключено.</small></div>
+          <div className="external-data-note"><b>Прогноз урожайности</b><span>Нет данных</span><small>Внешний источник не подключён; урожайность по собранному урожаю рассчитывается из ручного ввода.</small></div>
           <label className="form-label">Цена топлива, ₸/л<input className="form-input" type="number" min="0" step="1" value={draft.fuelPricePerL} onChange={(event) => updateField('fuelPricePerL', Number(event.target.value))} /></label>
           <label className="form-label">Цена реализации, ₸/т<input className="form-input" type="number" min="0" step="1000" value={draft.grainPricePerT} onChange={(event) => updateField('grainPricePerT', Number(event.target.value))} /></label>
           <label className="form-label">Семена, ₸<input className="form-input" type="number" min="0" step="1000" value={draft.seedCost || ''} placeholder="Не указано" onChange={(event) => updateField('seedCost', Number(event.target.value))} /></label>
@@ -1271,9 +1181,6 @@ function KpiCard({ label, value, meta, icon, tone }: { label: string; value: str
   return <div className="kpi-card panel"><div className={`kpi-icon ${tone}`}>{icon}</div><div><p>{label}</p><strong>{value}</strong><small>{meta}</small></div></div>
 }
 
-function Risk({ label, score, status, width, color }: { label: string; score: string; status: string; width: string; color: string }) {
-  return <div className="risk-row"><div className="risk-label"><b>{label}</b><span className={`risk-status ${color}`}>{status}</span><strong>{score}<small>/100</small></strong></div><div className="risk-track"><span className={color} style={{ width }} /></div></div>
-}
 
 function FieldSetupScreen({ company, userLocation, onComplete: completeFields }: { company: Company; userLocation: { lat: number; lon: number } | null; onComplete: (fields: FieldRecord[]) => Promise<void> }) {
   const [fields, setFields] = useState<FieldRecord[]>([])
@@ -1334,7 +1241,7 @@ function FieldSetupScreen({ company, userLocation, onComplete: completeFields }:
       grainPricePerT: 85000,
       harvestTotalT: 0,
       yieldPerHa: 0,
-      yieldForecastT: 2.4,
+      yieldForecastT: 0,
       seedCost: 0,
       irrigationCost: 0,
       treatmentCost: 0,
