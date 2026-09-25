@@ -124,6 +124,9 @@ input, select { min-height: 44px; }
 .team-row select:disabled { opacity: .6; }
 .profile-panel .profile-button + .profile-button, .utility-panel .profile-button + .profile-button { margin-top: 10px; }
 .season-panel { margin-bottom: 15px; overflow: hidden; }
+.season-panel { scroll-margin-top: 18px; }
+.heading-actions { flex-wrap: wrap; }
+.heading-actions a.outline-button { display: inline-flex; align-items: center; text-decoration: none; }
 .season-form { display: grid; grid-template-columns: .55fr 1fr .9fr .9fr 1.6fr auto; align-items: end; gap: 10px; padding: 0 19px 15px; }
 .season-form label { display: grid; gap: 5px; min-width: 0; color: #607468; font-size: 10px; font-weight: 700; }
 .season-form input { width: 100%; min-width: 0; min-height: 38px; padding: 7px 9px; border: 1px solid #d8e6d4; border-radius: 5px; color: #405e49; background: #fff; font-size: 11px; }

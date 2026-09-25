@@ -723,6 +723,7 @@ function App() {
             </div>
             <div className="heading-actions">
               <div className="outline-button secondary-action">⌘ {selectedCompany.name}</div>
+              <a className="outline-button" href="#field-seasons">↘ История урожайности</a>
               <button className="outline-button" onClick={() => setReportOpen(true)} disabled={tasksLoading || weatherLoading}>↓ Скачать отчёт</button>
               <button className="outline-button" onClick={() => setChatOpen(true)}>✦ Спросить AI-агента</button>
             </div>
