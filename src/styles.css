@@ -106,6 +106,55 @@ input, select { min-height: 44px; }
 .index-content .source-note { font-size: 10px; line-height: 1.5; }
 .index-feedback { margin: 0 19px 12px; padding: 9px 10px; border-radius: 5px; background: #e9f4e7; color: #3b7650; font-size: 10px; line-height: 1.5; }
 .index-feedback.error { background: #fff0eb; color: #a25d4e; }
+.team-panel h3 { margin: 21px 0 10px; color: #315b42; font: 700 16px 'Manrope', sans-serif; }
+.team-panel > p { line-height: 1.5; }
+.team-invite-form { display: grid; gap: 12px; }
+.team-code { display: grid; gap: 10px; margin: 15px 0; padding: 14px; border: 1px solid #cfe0ca; border-radius: 7px; background: #eaf4e6; }
+.team-code strong { color: #356044; font-size: 12px; }
+.team-code input { font-family: monospace; font-size: 12px; }
+.team-info { padding: 10px 12px; border-radius: 5px; color: #41784a; background: #eaf4e6; font-size: 11px; }
+.team-list { max-height: 230px; overflow-y: auto; border-top: 1px solid #e3ece0; }
+.team-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; min-height: 57px; padding: 10px 0; border-bottom: 1px solid #e3ece0; }
+.team-row > div { flex: 1; min-width: 0; }
+.team-row b, .team-row small { display: block; overflow-wrap: anywhere; }
+.team-row b { color: #315b42; font-size: 12px; }
+.team-row small { margin-top: 3px; color: #879b8a; font-size: 10px; }
+.team-row label { display: grid; gap: 3px; color: #607468; font-size: 10px; }
+.team-row select { min-height: 35px; padding: 6px; border: 1px solid #cfe0ca; border-radius: 5px; background: #fff; color: #315b42; font-size: 11px; }
+.team-row select:disabled { opacity: .6; }
+.profile-panel .profile-button + .profile-button, .utility-panel .profile-button + .profile-button { margin-top: 10px; }
+.season-panel { margin-bottom: 15px; overflow: hidden; }
+.season-form { display: grid; grid-template-columns: .55fr 1fr .9fr .9fr 1.6fr auto; align-items: end; gap: 10px; padding: 0 19px 15px; }
+.season-form label { display: grid; gap: 5px; min-width: 0; color: #607468; font-size: 10px; font-weight: 700; }
+.season-form input { width: 100%; min-width: 0; min-height: 38px; padding: 7px 9px; border: 1px solid #d8e6d4; border-radius: 5px; color: #405e49; background: #fff; font-size: 11px; }
+.season-form button { min-height: 38px; white-space: nowrap; }
+.season-import { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 19px 15px; padding-top: 12px; border-top: 1px solid #e3ece0; color: #607468; font-size: 10px; }
+.season-import label { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.season-import input { max-width: 205px; font-size: 10px; }
+.season-import .outline-button { min-height: 35px; padding: 7px 10px; font-size: 10px; }
+.season-panel .team-info { margin: 0 19px 13px; }
+.season-table-wrap { overflow-x: auto; border-top: 1px solid #e3ece0; }
+.season-table { width: 100%; min-width: 780px; border-collapse: collapse; color: #405e49; font-size: 11px; }
+.season-table th, .season-table td { padding: 10px 13px; border-bottom: 1px solid #e3ece0; text-align: left; vertical-align: middle; }
+.season-table th { color: #849789; background: #f7faf5; font-size: 10px; }
+.season-table td small { display: block; margin-top: 4px; color: #8a9a8c; font-size: 9px; }
+.season-row-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.forecast-panel { margin-bottom: 15px; }
+.forecast-body { padding: 0 19px 18px; }
+.forecast-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.forecast-summary > div, .forecast-scenarios > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 12px; border-radius: 6px; background: #f1f7ef; }
+.forecast-summary small, .forecast-scenarios small { color: #748e79; font-size: 10px; }
+.forecast-summary strong { color: #2e6242; font: 800 20px 'Manrope', sans-serif; }
+.forecast-summary span, .forecast-scenarios span { color: #748e79; font-size: 10px; line-height: 1.4; }
+.forecast-scenarios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.forecast-scenarios b { color: #3b674b; font: 700 15px 'Manrope', sans-serif; }
+.forecast-details { margin-top: 14px; color: #56715e; font-size: 11px; line-height: 1.5; }
+.forecast-details summary { cursor: pointer; color: #397052; font-weight: 700; }
+.forecast-details ul { padding-left: 19px; }
+.forecast-details li { margin: 6px 0; }
+@media (max-width: 700px) { .forecast-summary, .forecast-scenarios { grid-template-columns: 1fr; } }
+@media (max-width: 1150px) { .season-form { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .season-form { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 14px 15px; }.season-form .season-source { grid-column: 1 / -1; }.season-import { margin: 0 14px 15px; } }
 @media (max-width: 700px) { .index-actions { justify-content: flex-start; } .chart-card .panel-header { flex-wrap: wrap; gap: 8px; } }
 .weather-list { grid-template-columns: repeat(7, minmax(100px, 1fr)); overflow-x: auto; gap: 6px; }
 .weather-day { text-align: center; }

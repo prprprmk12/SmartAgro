@@ -54,7 +54,7 @@ await once(weatherServer, 'listening')
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', MONGODB_URI: 'mongodb://127.0.0.1:1', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics` },
+  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', MONGODB_URI: 'mongodb://127.0.0.1:1', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics` },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -67,7 +67,7 @@ async function request(path, method = 'GET', token, body) {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
-  return { status: response.status, data: await response.json() }
+  return { status: response.status, data: response.status === 204 ? null : await response.json() }
 }
 
 async function waitForServer() {
@@ -82,18 +82,69 @@ async function waitForServer() {
   throw new Error(`API did not become ready: ${serverOutput}`)
 }
 
-test('fields and weather stay isolated by company, including saved forecast fallback', { timeout: 45000 }, async () => {
+function validBin(prefix) {
+  const digits = prefix.split('').map(Number)
+  const checksum = (weights) => weights.reduce((sum, weight, index) => sum + digits[index] * weight, 0) % 11
+  const first = checksum([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  return `${prefix}${first < 10 ? first : checksum([3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2])}`
+}
+
+test('authenticated companies isolate fields and roles; invitations and sessions enforce access', { timeout: 60000 }, async () => {
   try {
     await waitForServer()
-    const companies = (await request('/api/companies')).data
-    const register = async (companyId) => {
+    assert.ok((await request('/api/companies')).data.some((item) => item.ownerRegistered === false))
+    const register = async (binPrefix) => {
       const email = `field-${crypto.randomUUID()}@example.test`
-      const response = await request('/api/auth/register', 'POST', undefined, { name: 'Agronomist', email, password: 'test-password', companyId, region: 'Акмолинская область' })
+      const response = await request('/api/auth/register', 'POST', undefined, { name: 'Owner', email, password: 'test-password', companyName: `Farm ${binPrefix}`, companyBin: validBin(binPrefix), companyLocation: 'Kokshetau', region: 'Акмолинская область' })
       assert.equal(response.status, 201)
       return { ...response.data, email }
     }
-    const first = await register(companies[0].id)
-    const second = await register(companies[1].id)
+    const first = await register('12345678901')
+    const second = await register('12345678902')
+    assert.equal(first.user.role, 'owner')
+    assert.equal(second.user.role, 'owner')
+    assert.equal((await request('/api/companies')).data.find((item) => item.id === first.companyId).ownerRegistered, true)
+    assert.equal((await request('/api/auth/me', 'GET', first.token)).data.user.role, 'owner')
+    const inviteeEmail = `agronomist-${crypto.randomUUID()}@example.test`
+    const invitedBody = { name: 'New agronomist', email: inviteeEmail, password: 'test-password', companyId: first.companyId, region: 'Акмолинская область' }
+    assert.equal((await request('/api/auth/register', 'POST', undefined, invitedBody)).status, 403)
+    assert.equal((await request('/api/company/invitations', 'POST', second.token, { email: first.email })).status, 409)
+    const invite = await request('/api/company/invitations', 'POST', first.token, { email: inviteeEmail })
+    assert.equal(invite.status, 201)
+    assert.match(invite.data.code, /^[a-f0-9]{64}$/)
+    assert.equal((await request('/api/company/invitations', 'POST', first.token, { email: inviteeEmail })).status, 409)
+    const listedInvites = await request('/api/company/invitations', 'GET', first.token)
+    assert.equal(listedInvites.data.length, 1)
+    assert.equal(listedInvites.data[0].code, undefined)
+    assert.equal((await request('/api/company/invitations', 'GET', second.token)).data.length, 0)
+    assert.equal((await request('/api/auth/register', 'POST', undefined, { ...invitedBody, email: `wrong-${crypto.randomUUID()}@example.test`, invitationCode: invite.data.code })).status, 403)
+    assert.equal((await request('/api/auth/register', 'POST', undefined, { ...invitedBody, companyId: second.companyId, invitationCode: invite.data.code })).status, 403)
+    const invited = await request('/api/auth/register', 'POST', undefined, { ...invitedBody, invitationCode: invite.data.code })
+    assert.equal(invited.status, 201)
+    assert.equal(invited.data.user.role, 'agronomist')
+    assert.equal((await request('/api/company/users', 'GET', invited.data.token)).status, 403)
+    assert.equal((await request('/api/company/invitations', 'POST', invited.data.token, { email: 'other@example.test' })).status, 403)
+    assert.equal((await request('/api/auth/register', 'POST', undefined, { ...invitedBody, invitationCode: invite.data.code })).status, 409)
+    const promoted = await request(`/api/company/users/${invited.data.user.id}`, 'PATCH', first.token, { role: 'owner' })
+    assert.equal(promoted.status, 200)
+    assert.equal(promoted.data.role, 'owner')
+    assert.equal((await request('/api/company/users', 'GET', invited.data.token)).status, 200)
+    assert.equal((await request(`/api/company/users/${first.user.id}`, 'PATCH', first.token, { role: 'agronomist' })).status, 400)
+    assert.equal((await request(`/api/company/users/${second.user.id}`, 'PATCH', first.token, { role: 'agronomist' })).status, 404)
+    assert.equal((await request(`/api/company/users/${invited.data.user.id}`, 'PATCH', first.token, { role: 'agronomist' })).status, 200)
+    assert.equal((await request('/api/company/users', 'GET', invited.data.token)).status, 403)
+    const suspended = await request(`/api/company/users/${invited.data.user.id}`, 'PATCH', first.token, { disabled: true })
+    assert.equal(suspended.status, 200)
+    assert.equal(suspended.data.disabled, true)
+    assert.equal((await request('/api/fields', 'GET', invited.data.token)).status, 401)
+    assert.equal((await request('/api/auth/login', 'POST', undefined, { email: inviteeEmail, password: 'test-password' })).status, 403)
+    assert.equal((await request(`/api/company/users/${invited.data.user.id}`, 'PATCH', first.token, { disabled: false })).status, 200)
+    const reenabled = await request('/api/auth/login', 'POST', undefined, { email: inviteeEmail, password: 'test-password' })
+    assert.equal(reenabled.status, 200)
+    assert.equal(reenabled.data.user.role, 'agronomist')
+    const pending = await request('/api/company/invitations', 'POST', first.token, { email: `pending-${crypto.randomUUID()}@example.test` })
+    assert.equal(pending.status, 201)
+    assert.equal((await request(`/api/company/invitations/${pending.data.id}`, 'DELETE', first.token)).status, 204)
     const field = {
       name: 'North Field', crop: 'Wheat', sowingDate: '2026-04-14', areaHa: 30, plantedAreaHa: 30,
       fuelUsedL: 180, fuelPricePerL: 18, grainPricePerT: 85000, harvestTotalT: 0,
@@ -104,10 +155,60 @@ test('fields and weather stay isolated by company, including saved forecast fall
     assert.equal((await request('/api/fields')).status, 401)
     const created = await request('/api/fields', 'POST', first.token, field)
     assert.equal(created.status, 201)
+    const seasonPath = `/api/fields/${created.data.id}/seasons`
+    const history = { year: 2023, crop: 'Wheat', plantedAreaHa: 30, harvestTotalT: 55, source: 'Farm harvest log' }
+    assert.equal((await request(seasonPath, 'GET')).status, 401)
+    assert.equal((await request(seasonPath, 'GET', second.token)).status, 404)
+    assert.equal((await request(seasonPath, 'POST', second.token, history)).status, 404)
+    assert.equal((await request(seasonPath, 'POST', first.token, { ...history, year: new Date().getFullYear() + 1 })).status, 400)
+    assert.equal((await request(seasonPath, 'POST', first.token, { ...history, plantedAreaHa: 0 })).status, 400)
+    assert.equal((await request(seasonPath, 'POST', first.token, { ...history, source: '' })).status, 400)
+    const recordedSeason = await request(seasonPath, 'POST', first.token, history)
+    assert.equal(recordedSeason.status, 201)
+    assert.equal(recordedSeason.data.yieldPerHa, 55 / 30)
+    assert.equal((await request(seasonPath, 'POST', first.token, { ...history, crop: 'WHEAT' })).status, 409)
+    const alternateCrop = await request(seasonPath, 'POST', first.token, { ...history, crop: 'Barley' })
+    assert.equal(alternateCrop.status, 201)
+    assert.equal((await request(`${seasonPath}/${alternateCrop.data.id}`, 'DELETE', second.token)).status, 404)
+    assert.equal((await request(`${seasonPath}/${alternateCrop.data.id}`, 'DELETE', first.token)).status, 204)
+    const imports = [{ ...history, year: 2022, harvestTotalT: 60 }, { ...history, harvestTotalT: 70 }]
+    assert.equal((await request(`${seasonPath}/import`, 'POST', first.token, { seasons: [imports[0], imports[0]] })).status, 400)
+    assert.equal((await request(`${seasonPath}/import`, 'POST', second.token, { seasons: imports })).status, 404)
+    assert.equal((await request(`${seasonPath}/import`, 'POST', first.token, { seasons: imports })).status, 201)
+    const seasonsAfterImport = await request(seasonPath, 'GET', first.token)
+    assert.deepEqual(seasonsAfterImport.data.map((item) => item.year), [2023, 2022])
+    assert.equal(seasonsAfterImport.data[0].harvestTotalT, 70)
+    assert.equal((await request(`${seasonPath}/${recordedSeason.data.id}`, 'PATCH', first.token, { ...history, year: 2022 })).status, 409)
+    const corrected = await request(`${seasonPath}/${recordedSeason.data.id}`, 'PATCH', first.token, { ...history, harvestTotalT: 80 })
+    assert.equal(corrected.status, 200)
+    assert.equal(corrected.data.yieldPerHa, 80 / 30)
+    const forecastPath = `/api/fields/${created.data.id}/yield-forecast`
+    assert.equal((await request(forecastPath, 'GET', second.token)).status, 404)
+    const missingForecast = await request(forecastPath, 'GET', first.token)
+    assert.equal(missingForecast.status, 200)
+    assert.equal(missingForecast.data.status, 'insufficient_data')
+    assert.equal(missingForecast.data.prediction, null)
+    assert.equal((await request(seasonPath, 'POST', first.token, { ...history, year: 2021, harvestTotalT: 90 })).status, 201)
+    const readyForecast = await request(forecastPath, 'GET', first.token)
+    assert.equal(readyForecast.data.status, 'ready')
+    assert.equal(readyForecast.data.prediction, 80 / 30)
+    assert.equal(readyForecast.data.totalHarvestT, 80)
+    assert.equal(readyForecast.data.confidence, 'low')
+    assert.equal(readyForecast.data.features.seasons.length, 3)
+    const historyChat = await request('/api/ai/chat', 'POST', first.token, { message: 'Какая урожайность была в 2023?', field: { id: created.data.id } })
+    assert.equal(historyChat.status, 200)
+    assert.match(historyChat.data.answer, /2023/)
+    assert.match(historyChat.data.answer, /Farm harvest log/)
+    assert.match(historyChat.data.answer, /медиана 2\.67/)
+    assert.match(historyChat.data.answer, /не доверительный интервал/)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', undefined, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 401)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', second.token, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 404)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 200)
     const updated = await request(`/api/fields/${created.data.id}`, 'PUT', first.token, { ...field, fuelPricePerL: 22 })
     assert.equal(updated.status, 200)
     const login = await request('/api/auth/login', 'POST', undefined, { email: first.email, password: 'test-password' })
     assert.equal(login.status, 200)
+    assert.equal((await request(seasonPath, 'GET', login.data.token)).data[0].harvestTotalT, 80)
     const own = await request('/api/fields', 'GET', login.data.token)
     assert.equal(own.data.length, 1)
     assert.equal(own.data[0].fuelPricePerL, 22)
@@ -207,7 +308,7 @@ test('fields and weather stay isolated by company, including saved forecast fall
     assert.equal((await request(`/api/weather?field_id=${created.data.id}`, 'GET', second.token)).status, 404)
     const chat = await request('/api/ai/chat', 'POST', first.token, { message: 'Какой прогноз урожая?', field: { id: created.data.id } })
     assert.equal(chat.status, 200)
-    assert.match(chat.data.answer, /нет|не подключен/i)
+    assert.match(chat.data.answer, /ориентир по введённой истории/i)
     assert.doesNotMatch(chat.data.answer, /2\.84/)
     assert.equal((await request('/api/ai/chat', 'POST', second.token, { message: 'Какой урожай?', field: { id: created.data.id } })).status, 404)
     weatherUnavailable = true
@@ -218,6 +319,9 @@ test('fields and weather stay isolated by company, including saved forecast fall
     const bulk = await request('/api/fields/bulk', 'POST', first.token, [{ ...field, name: 'Second' }, { ...field, name: 'Third' }])
     assert.equal(bulk.status, 201)
     assert.equal((await request('/api/fields', 'GET', first.token)).data.length, 4)
+    assert.equal((await request('/api/auth/session', 'DELETE', first.token)).status, 204)
+    assert.equal((await request('/api/fields', 'GET', first.token)).status, 401)
+    assert.equal((await request('/api/fields', 'GET', login.data.token)).status, 200)
   } finally {
     server.kill()
     weatherServer.close()

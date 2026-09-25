@@ -7,6 +7,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fetchWeather } from './weather.mjs'
 import { CdseError, fetchCdseMeasurements, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
+import { hashPassword, verifyPassword } from './passwords.mjs'
+import { migrateRoles } from './roles.mjs'
+import { forecastFromHistory } from './yieldForecast.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -30,6 +33,7 @@ const matchValue = (left, right) => {
   if (right && typeof right === 'object' && !Array.isArray(right) && '$exists' in right) return (left !== undefined) === right.$exists
   if (right && typeof right === 'object' && !Array.isArray(right) && '$in' in right) return right.$in.some((value) => matchValue(left, value))
   if (right && typeof right === 'object' && !Array.isArray(right) && '$gte' in right) return left !== undefined && left >= right.$gte
+  if (right && typeof right === 'object' && !Array.isArray(right) && '$gt' in right) return left !== undefined && left > right.$gt
   return left === right
 }
 
@@ -50,6 +54,27 @@ const createMemoryCollection = (name) => {
       const set = update?.$set ?? {}
       matches.forEach((item) => Object.assign(item, set))
       return { acknowledged: true, matchedCount: matches.length, modifiedCount: matches.length }
+    },
+    async updateOne(filter, update) {
+      const item = items.find((entry) => matchesFilter(entry, filter))
+      if (!item) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 }
+      Object.assign(item, update?.$set ?? {})
+      return { acknowledged: true, matchedCount: 1, modifiedCount: 1 }
+    },
+    async deleteOne(filter) {
+      const index = items.findIndex((entry) => matchesFilter(entry, filter))
+      if (index === -1) return { acknowledged: true, deletedCount: 0 }
+      items.splice(index, 1)
+      return { acknowledged: true, deletedCount: 1 }
+    },
+    async deleteMany(filter) {
+      let deletedCount = 0
+      for (let index = items.length - 1; index >= 0; index--) {
+        if (!matchesFilter(items[index], filter)) continue
+        items.splice(index, 1)
+        deletedCount++
+      }
+      return { acknowledged: true, deletedCount }
     },
     async insertMany(docs) {
       const insertedIds = []
@@ -108,19 +133,35 @@ const createMemoryDb = () => {
 
 app.use(express.json({ limit: '35mb' }))
 
-const hashPassword = (password) => crypto.scryptSync(password, 'smartagro-local-salt', 64).toString('hex')
-const publicUser = (user) => ({ id: user._id.toString(), name: user.name, email: user.email, companyId: user.companyId })
+const publicUser = (user) => ({ id: user._id.toString(), name: user.name, email: user.email, companyId: user.companyId.toString(), role: user.role, disabled: user.disabled === true })
+const publicCompany = (company) => ({ id: company._id.toString(), name: company.name, region: company.region, location: company.location, fields: [] })
 const sessionHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
+const validEmail = (value) => typeof value === 'string' && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 const publicField = (field) => ({ ...field, id: field._id.toString(), companyId: field.companyId.toString() })
 const publicTask = (task) => ({
   id: task._id.toString(), fieldId: task.fieldId.toString(), title: task.title,
   section: task.section, priority: task.priority, dueDate: task.dueDate,
   assignee: task.assignee, status: task.status, createdAt: task.createdAt, updatedAt: task.updatedAt,
 })
+const publicSeason = (season) => ({
+  id: season._id.toString(), fieldId: season.fieldId.toString(), year: season.year,
+  crop: season.crop, plantedAreaHa: season.plantedAreaHa, harvestTotalT: season.harvestTotalT,
+  yieldPerHa: season.harvestTotalT / season.plantedAreaHa, source: season.source,
+  createdAt: season.createdAt, updatedAt: season.updatedAt,
+})
 const publicIndexMeasurement = (item) => ({ date: item.date, index: item.index, value: item.value, source: item.source, cloudCoverPct: item.cloudCoverPct, validPixelPct: item.validPixelPct ?? null, origin: item.origin === 'cdse' ? 'cdse' : 'user-upload', processingVersion: item.processingVersion ?? null, ingestedAt: item.ingestedAt })
 const supportedIndices = ['ndvi', 'evi', 'ndwi']
 const validTaskDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
 const shortText = (value, max, required = false) => typeof value === 'string' && value.trim().length <= max && (!required || value.trim().length > 0)
+
+function normalizeSeason(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+    !Number.isInteger(value.year) || value.year < 1990 || value.year > new Date().getUTCFullYear() ||
+    !shortText(value.crop, 80, true) || !shortText(value.source, 160, true) ||
+    typeof value.plantedAreaHa !== 'number' || !Number.isFinite(value.plantedAreaHa) || value.plantedAreaHa <= 0 || value.plantedAreaHa > 100000 ||
+    typeof value.harvestTotalT !== 'number' || !Number.isFinite(value.harvestTotalT) || value.harvestTotalT < 0 || value.harvestTotalT > 100000000) return null
+  return { year: value.year, crop: value.crop.trim(), cropKey: value.crop.trim().toLocaleLowerCase('ru-RU'), plantedAreaHa: value.plantedAreaHa, harvestTotalT: value.harvestTotalT, source: value.source.trim() }
+}
 
 function normalizeMeasurement(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -192,12 +233,12 @@ async function getAkmolaBoundary() {
   return akmolaBoundaryPromise
 }
 
-async function fallbackAiAnswer(message, observations = []) {
+async function fallbackAiAnswer(message, observations = [], forecast = null) {
   if (!isAgriculturalQuestion(message)) return 'Я помогаю только с работой хозяйства: поля, урожайность, погода, риски, сроки работ и экономика. Сформулируйте вопрос в этой области.'
   if (/ndvi|ndwi|evi|индекс|спутник/i.test(message)) return observations.length ? `Последние измерения: ${observations.map((item) => `${item.index.toUpperCase()} ${item.value.toFixed(3)} от ${item.date} (${item.source}; ${item.origin === 'cdse' ? 'рассчитано CDSE по контуру' : 'CSV пользователя, источник не проверен'})`).join('; ')}. По среднему значению нельзя оценить отдельные зоны поля.` : 'Для этого поля нет измерений NDVI/NDWI/EVI за последние 90 дней. Обновите данные из CDSE или загрузите CSV с датой и происхождением показателей.'
-  if (/урожа|прогноз|сколько/i.test(message)) return 'Проверенного прогноза урожайности пока нет: модель и исторические данные поля не подключены. Фактический сбор и расходы можно посмотреть в карточке поля.'
+  if (/урожа|прогноз|сколько/i.test(message)) return forecast?.status === 'ready' ? `Ориентир по введённой истории: медиана ${forecast.prediction.toFixed(2)} т/га, наблюдавшийся диапазон P10–P90 ${forecast.lower_bound.toFixed(2)}–${forecast.upper_bound.toFixed(2)} т/га (${forecast.features.seasons.length} сезонов культуры «${forecast.features.crop}»). Источники: ${forecast.features.seasons.map((season) => `${season.year}: ${season.source}`).join('; ')}. Это не доверительный интервал и не гарантия; погода и индексы не корректируют число.` : `${forecast?.reason || 'Нужно как минимум три завершённых сезона той же культуры.'} Числовой ориентир пока недоступен; история введена агрономом и не проверена независимо.`
   if (/погод|дожд|осадк|уборк/i.test(message)) return 'Прогноз по координатам выбранного поля находится в блоке «Погода». Проверяйте дату его получения: точные сроки работ без расчёта календаря рекомендовать нельзя.'
-  if (/затрат|расход|марж|доход|цен|топлив/i.test(message)) return 'Расходы введены агрономом. Ожидаемую маржу нельзя рассчитать без прогноза урожайности; значения расходов смотрите в блоке «Экономика».'
+  if (/затрат|расход|марж|доход|цен|топлив/i.test(message)) return forecast?.status === 'ready' ? 'Сценарная маржа считается в блоке «Экономика»: урожайность по медиане прошлых сезонов × текущая посевная площадь × указанная цена зерна − введённые прямые затраты. Это не обещание дохода; проверьте цену и расходы.' : 'Расходы введены агрономом. Для расчёта сценарной маржи пока не хватает истории сезонов той же культуры; значения расходов смотрите в блоке «Экономика».'
   return 'Проверенной модели климатических рисков и прогноза урожая пока нет. Проверьте исходные данные выбранного поля и дату прогноза погоды перед решением о работах.'
 }
 
@@ -238,18 +279,26 @@ async function start() {
   const users = db.collection('users')
   const companies = db.collection('companies')
   const fields = db.collection('fields')
+  const seasons = db.collection('seasons')
   const tasks = db.collection('tasks')
   const indexMeasurements = db.collection('indexMeasurements')
   const cdseSyncs = db.collection('cdseSyncs')
   const cdseInFlight = new Set()
   const sessions = db.collection('sessions')
+  const invitations = db.collection('invitations')
   const weatherSnapshots = db.collection('weatherSnapshots')
   const weatherCache = new Map()
+  if (users.createIndex) await users.createIndex({ email: 1 }, { unique: true })
+  if (companies.createIndex) await companies.createIndex({ bin: 1 }, { unique: true, sparse: true })
   if (fields.createIndex) await fields.createIndex({ companyId: 1, name: 1 }, { unique: true })
+  if (seasons.createIndex) await seasons.createIndex({ companyId: 1, fieldId: 1, year: 1, cropKey: 1 }, { unique: true })
   if (tasks.createIndex) await tasks.createIndex({ companyId: 1, fieldId: 1, status: 1, dueDate: 1 })
   if (indexMeasurements.createIndex) await indexMeasurements.createIndex({ companyId: 1, fieldId: 1, index: 1, date: 1, source: 1 }, { unique: true })
   if (cdseSyncs.createIndex) await cdseSyncs.createIndex({ companyId: 1, fieldId: 1 }, { unique: true })
   if (sessions.createIndex) await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+  if (invitations.createIndex) await invitations.createIndex({ tokenHash: 1 }, { unique: true })
+  if (invitations.createIndex) await invitations.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+  await migrateRoles(users)
   const createSession = async (user) => {
     const token = crypto.randomBytes(32).toString('hex')
     await sessions.insertOne({ tokenHash: sessionHash(token), userId: user._id, expiresAt: new Date(Date.now() + 30 * 86400000) })
@@ -263,12 +312,14 @@ async function start() {
       if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return res.status(401).json({ error: 'Сессия истекла. Войдите снова' })
       const user = await users.findOne({ _id: session.userId })
       if (!user) return res.status(401).json({ error: 'Пользователь не найден' })
+      if (user.disabled) return res.status(403).json({ error: 'Доступ к ТОО отключён владельцем' })
       req.user = user
       next()
     } catch (error) {
       next(error)
     }
   }
+  const requireOwner = (req, res, next) => req.user.role === 'owner' ? next() : res.status(403).json({ error: 'Доступно только владельцу ТОО' })
 
   app.get('/api/health', async (_req, res) => {
     try {
@@ -295,7 +346,7 @@ async function start() {
   app.get('/api/companies', async (req, res) => {
     const region = req.query.region || supportedRegion
     const items = await companies.find({ region }, { projection: { fields: 1, name: 1, location: 1, region: 1 } }).sort({ name: 1 }).toArray()
-    res.json(items.map((item) => ({ ...item, id: item._id.toString() })))
+    res.json(await Promise.all(items.map(async (item) => ({ ...publicCompany(item), ownerRegistered: await users.countDocuments({ companyId: item._id, role: 'owner' }) > 0 }))))
   })
 
   app.get('/api/companies/:companyId/fields', requireUser, async (req, res) => {
@@ -339,6 +390,91 @@ async function start() {
     if (data.name !== existing.name && await fields.findOne({ companyId: req.user.companyId, name: data.name })) return res.status(409).json({ error: 'Поле с таким названием уже существует' })
     await fields.updateMany({ _id, companyId: req.user.companyId }, { $set: { ...data, updatedAt: new Date() } })
     res.json(publicField({ ...existing, ...data, updatedAt: new Date() }))
+  })
+
+  app.get('/api/fields/:fieldId/seasons', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    if (!await fields.findOne({ _id: fieldId, companyId: req.user.companyId })) return res.status(404).json({ error: 'Поле не найдено' })
+    const items = await seasons.find({ companyId: req.user.companyId, fieldId }).sort({ year: -1, crop: 1 }).toArray()
+    res.json(items.map(publicSeason))
+  })
+
+  app.post('/api/fields/:fieldId/seasons', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    if (!await fields.findOne({ _id: fieldId, companyId: req.user.companyId })) return res.status(404).json({ error: 'Поле не найдено' })
+    const data = normalizeSeason(req.body)
+    if (!data) return res.status(400).json({ error: 'Укажите год, культуру, площадь, фактический сбор и источник данных' })
+    const identity = { companyId: req.user.companyId, fieldId, year: data.year, cropKey: data.cropKey }
+    if (await seasons.findOne(identity)) return res.status(409).json({ error: 'Этот сезон и культура уже записаны для поля. Откройте запись для исправления.' })
+    const season = { ...identity, ...data, createdAt: new Date(), updatedAt: new Date() }
+    try {
+      const result = await seasons.insertOne(season)
+      res.status(201).json(publicSeason({ ...season, _id: result.insertedId }))
+    } catch (error) {
+      if (error.code === 11000) return res.status(409).json({ error: 'Этот сезон и культура уже записаны для поля' })
+      throw error
+    }
+  })
+
+  app.post('/api/fields/:fieldId/seasons/import', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    if (!await fields.findOne({ _id: fieldId, companyId: req.user.companyId })) return res.status(404).json({ error: 'Поле не найдено' })
+    const records = req.body?.seasons
+    if (!Array.isArray(records) || records.length < 1 || records.length > 100) return res.status(400).json({ error: 'Передайте от 1 до 100 сезонов' })
+    const normalized = records.map(normalizeSeason)
+    if (normalized.some((item) => !item) || new Set(normalized.map((item) => `${item.year}|${item.cropKey}`)).size !== normalized.length) return res.status(400).json({ error: 'Проверьте данные и повторяющиеся сезоны в таблице' })
+    const now = new Date()
+    for (const data of normalized) {
+      const identity = { companyId: req.user.companyId, fieldId, year: data.year, cropKey: data.cropKey }
+      const existing = await seasons.findOne(identity)
+      if (existing) await seasons.updateOne({ _id: existing._id, companyId: req.user.companyId }, { $set: { ...data, updatedAt: now } })
+      else {
+        try { await seasons.insertOne({ ...identity, ...data, createdAt: now, updatedAt: now }) }
+        catch (error) {
+          if (error.code !== 11000) throw error
+          await seasons.updateOne(identity, { $set: { ...data, updatedAt: now } })
+        }
+      }
+    }
+    res.status(201).json({ imported: normalized.length, updatedAt: now.toISOString() })
+  })
+
+  app.patch('/api/fields/:fieldId/seasons/:seasonId', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId) || !ObjectId.isValid(req.params.seasonId)) return res.status(400).json({ error: 'Некорректный идентификатор' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    const _id = new ObjectId(req.params.seasonId)
+    const existing = await seasons.findOne({ _id, companyId: req.user.companyId, fieldId })
+    if (!existing) return res.status(404).json({ error: 'Сезон не найден' })
+    const data = normalizeSeason(req.body)
+    if (!data) return res.status(400).json({ error: 'Некорректные данные сезона' })
+    if ((data.year !== existing.year || data.cropKey !== existing.cropKey) && await seasons.findOne({ companyId: req.user.companyId, fieldId, year: data.year, cropKey: data.cropKey })) return res.status(409).json({ error: 'Этот сезон и культура уже записаны для поля' })
+    const updatedAt = new Date()
+    try {
+      await seasons.updateOne({ _id, companyId: req.user.companyId, fieldId }, { $set: { ...data, updatedAt } })
+      res.json(publicSeason({ ...existing, ...data, updatedAt }))
+    } catch (error) {
+      if (error.code === 11000) return res.status(409).json({ error: 'Этот сезон и культура уже записаны для поля' })
+      throw error
+    }
+  })
+
+  app.delete('/api/fields/:fieldId/seasons/:seasonId', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId) || !ObjectId.isValid(req.params.seasonId)) return res.status(400).json({ error: 'Некорректный идентификатор' })
+    const result = await seasons.deleteOne({ _id: new ObjectId(req.params.seasonId), companyId: req.user.companyId, fieldId: new ObjectId(req.params.fieldId) })
+    if (!result.deletedCount) return res.status(404).json({ error: 'Сезон не найден' })
+    res.status(204).end()
+  })
+
+  app.get('/api/fields/:fieldId/yield-forecast', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    const field = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    const history = await seasons.find({ fieldId, companyId: req.user.companyId }).toArray()
+    res.json({ fieldId: fieldId.toString(), ...forecastFromHistory(field, history) })
   })
 
   app.get('/api/fields/:fieldId/indices', requireUser, async (req, res) => {
@@ -496,42 +632,132 @@ async function start() {
   })
 
   app.post('/api/auth/register', async (req, res) => {
-    const { name, email, password, companyId, companyName, companyBin, companyLocation, region } = req.body
-    if (!name || !email || !password || !region) return res.status(400).json({ error: 'Заполните имя, email, пароль и область' })
+    const { name, email, password, companyId, companyName, companyBin, companyLocation, region, invitationCode } = req.body ?? {}
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 || !validEmail(email) || typeof password !== 'string' || password.length < 10 || password.length > 256 || !region) return res.status(400).json({ error: 'Укажите имя, рабочий email и пароль длиной от 10 символов' })
     if (region !== supportedRegion) return res.status(400).json({ error: 'Сейчас доступна только Акмолинская область' })
+    const normalizedEmail = email.trim().toLowerCase()
+    if (await users.findOne({ email: normalizedEmail })) return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' })
     let company
+    let invitation
+    let createdCompanyId
+    let role = 'owner'
     if (companyId) {
-      if (!ObjectId.isValid(companyId)) return res.status(400).json({ error: 'Некорректное ТОО' })
+      if (typeof companyId !== 'string' || !ObjectId.isValid(companyId)) return res.status(400).json({ error: 'Некорректное ТОО' })
       company = await companies.findOne({ _id: new ObjectId(companyId), region })
+      if (!company) return res.status(400).json({ error: 'ТОО не найдено в выбранной области' })
+      if (typeof invitationCode !== 'string' || !/^[a-f0-9]{64}$/i.test(invitationCode.trim())) return res.status(403).json({ error: 'Для входа в существующее ТОО нужен код приглашения от владельца' })
+      invitation = await invitations.findOne({ companyId: company._id, email: normalizedEmail, tokenHash: sessionHash(invitationCode.trim().toLowerCase()), usedAt: null, expiresAt: { $gt: new Date() } })
+      if (!invitation) return res.status(403).json({ error: 'Приглашение не найдено, истекло или выдано для другого email' })
+      role = invitation.role
     } else {
       const normalizedBin = String(companyBin || '').replace(/\s/g, '')
       const normalizedCompanyName = String(companyName || '').trim()
       const normalizedLocation = String(companyLocation || '').trim()
-      if (!normalizedCompanyName || !normalizedLocation || !isValidBin(normalizedBin)) return res.status(400).json({ error: 'Укажите название, населённый пункт и корректный 12-значный БИН ТОО' })
+      if (!normalizedCompanyName || normalizedCompanyName.length > 120 || !normalizedLocation || normalizedLocation.length > 120 || !isValidBin(normalizedBin)) return res.status(400).json({ error: 'Укажите название, населённый пункт и корректный 12-значный БИН ТОО' })
       if (await companies.findOne({ bin: normalizedBin })) return res.status(409).json({ error: 'ТОО с таким БИН уже зарегистрировано. Выберите его из списка.' })
-      const companyResult = await companies.insertOne({ name: normalizedCompanyName, bin: normalizedBin, region, location: normalizedLocation, fields: [], createdAt: new Date() })
-      company = { _id: companyResult.insertedId, name: normalizedCompanyName, region, location: normalizedLocation, fields: [] }
+      try {
+        const companyResult = await companies.insertOne({ name: normalizedCompanyName, bin: normalizedBin, region, location: normalizedLocation, fields: [], createdAt: new Date() })
+        createdCompanyId = companyResult.insertedId
+        company = { _id: createdCompanyId, name: normalizedCompanyName, region, location: normalizedLocation, fields: [] }
+      } catch (error) {
+        if (error.code === 11000) return res.status(409).json({ error: 'ТОО с таким БИН уже зарегистрировано' })
+        throw error
+      }
     }
-    if (!company) return res.status(400).json({ error: 'ТОО не найдено в выбранной области' })
-    const normalizedEmail = email.trim().toLowerCase()
-    if (await users.findOne({ email: normalizedEmail })) return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' })
-    const user = { name: name.trim(), email: normalizedEmail, passwordHash: hashPassword(password), companyId: company._id, createdAt: new Date() }
-    const result = await users.insertOne(user)
+    const claimedAt = new Date()
+    if (invitation) {
+      const claim = await invitations.updateOne({ _id: invitation._id, companyId: company._id, usedAt: null, expiresAt: { $gt: claimedAt } }, { $set: { usedAt: claimedAt } })
+      if (!claim.modifiedCount) return res.status(403).json({ error: 'Приглашение уже использовано или срок истёк' })
+    }
+    const user = { name: name.trim(), email: normalizedEmail, passwordHash: hashPassword(password), companyId: company._id, role, createdAt: new Date() }
+    let result
+    try {
+      result = await users.insertOne(user)
+    } catch (error) {
+      if (invitation) await invitations.updateOne({ _id: invitation._id, usedAt: claimedAt }, { $set: { usedAt: null } })
+      if (createdCompanyId) await companies.deleteOne({ _id: createdCompanyId })
+      if (error.code === 11000) return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' })
+      throw error
+    }
     const savedUser = { ...user, _id: result.insertedId }
-    res.status(201).json({ user: publicUser(savedUser), companyId: company._id.toString(), token: await createSession(savedUser) })
+    res.status(201).json({ user: publicUser(savedUser), company: publicCompany(company), companyId: company._id.toString(), token: await createSession(savedUser) })
   })
 
   app.post('/api/auth/login', async (req, res) => {
-    const { email, password } = req.body
-    const user = await users.findOne({ email: email?.trim().toLowerCase(), passwordHash: password ? hashPassword(password) : '' })
-    if (!user) return res.status(401).json({ error: 'Неверная почта или пароль' })
-    res.json({ user: publicUser(user), companyId: user.companyId.toString(), token: await createSession(user) })
+    const { email, password } = req.body ?? {}
+    if (!validEmail(email) || typeof password !== 'string' || !password || password.length > 256) return res.status(401).json({ error: 'Неверная почта или пароль' })
+    const user = await users.findOne({ email: email.trim().toLowerCase() })
+    if (!user || !verifyPassword(password, user.passwordHash)) return res.status(401).json({ error: 'Неверная почта или пароль' })
+    if (user.disabled) return res.status(403).json({ error: 'Доступ к ТОО отключён владельцем' })
+    if (!user.passwordHash.startsWith('scrypt$')) await users.updateOne({ _id: user._id }, { $set: { passwordHash: hashPassword(password) } })
+    const company = await companies.findOne({ _id: user.companyId })
+    if (!company) return res.status(403).json({ error: 'ТОО пользователя не найдено' })
+    res.json({ user: publicUser(user), company: publicCompany(company), companyId: user.companyId.toString(), token: await createSession(user) })
   })
 
-  app.post('/api/ai/analyze-field', async (req, res) => {
-    const field = req.body?.field
+  app.get('/api/auth/me', requireUser, async (req, res) => {
+    const company = await companies.findOne({ _id: req.user.companyId })
+    if (!company) return res.status(403).json({ error: 'ТОО пользователя не найдено' })
+    res.json({ user: publicUser(req.user), company: publicCompany(company) })
+  })
+
+  app.delete('/api/auth/session', requireUser, async (req, res) => {
+    const token = req.headers.authorization.slice(7)
+    await sessions.deleteOne({ tokenHash: sessionHash(token), userId: req.user._id })
+    res.status(204).end()
+  })
+
+  app.get('/api/company/users', requireUser, requireOwner, async (req, res) => {
+    const members = await users.find({ companyId: req.user.companyId }).sort({ createdAt: 1 }).toArray()
+    res.json(members.map(publicUser))
+  })
+
+  app.patch('/api/company/users/:userId', requireUser, requireOwner, async (req, res) => {
+    const changes = req.body
+    if (!ObjectId.isValid(req.params.userId) || !changes || typeof changes !== 'object' || Array.isArray(changes) ||
+      Object.keys(changes).length !== 1 ||
+      !((Object.hasOwn(changes, 'role') && ['owner', 'agronomist'].includes(changes.role)) || (Object.hasOwn(changes, 'disabled') && typeof changes.disabled === 'boolean'))) return res.status(400).json({ error: 'Укажите новую роль или статус доступа' })
+    if (req.params.userId === req.user._id.toString()) return res.status(400).json({ error: 'Нельзя изменить собственную роль' })
+    const member = await users.findOne({ _id: new ObjectId(req.params.userId), companyId: req.user.companyId })
+    if (!member) return res.status(404).json({ error: 'Сотрудник не найден' })
+    await users.updateOne({ _id: member._id, companyId: req.user.companyId }, { $set: changes })
+    if (changes.disabled === true) await sessions.deleteMany({ userId: member._id })
+    res.json(publicUser({ ...member, ...changes }))
+  })
+
+  app.get('/api/company/invitations', requireUser, requireOwner, async (req, res) => {
+    const items = await invitations.find({ companyId: req.user.companyId }).sort({ createdAt: -1 }).toArray()
+    res.json(items.filter((item) => item.usedAt === null && new Date(item.expiresAt).getTime() > Date.now()).map((item) => ({ id: item._id.toString(), email: item.email, role: item.role, expiresAt: item.expiresAt })))
+  })
+
+  app.post('/api/company/invitations', requireUser, requireOwner, async (req, res) => {
+    const normalizedEmail = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    if (!validEmail(normalizedEmail)) return res.status(400).json({ error: 'Укажите корректный email сотрудника' })
+    if (await users.findOne({ email: normalizedEmail })) return res.status(409).json({ error: 'Этот email уже зарегистрирован' })
+    const pending = await invitations.find({ companyId: req.user.companyId, usedAt: null }).toArray()
+    const active = pending.filter((item) => new Date(item.expiresAt).getTime() > Date.now())
+    if (active.some((item) => item.email === normalizedEmail)) return res.status(409).json({ error: 'Для этого email уже есть действующее приглашение' })
+    if (active.length >= 20) return res.status(429).json({ error: 'Одновременно допускается не более 20 приглашений' })
+    const code = crypto.randomBytes(32).toString('hex')
+    const invitation = { companyId: req.user.companyId, email: normalizedEmail, role: 'agronomist', tokenHash: sessionHash(code), usedAt: null, createdBy: req.user._id, createdAt: new Date(), expiresAt: new Date(Date.now() + 7 * 86400000) }
+    const result = await invitations.insertOne(invitation)
+    res.status(201).json({ id: result.insertedId.toString(), email: normalizedEmail, role: invitation.role, expiresAt: invitation.expiresAt, code })
+  })
+
+  app.delete('/api/company/invitations/:invitationId', requireUser, requireOwner, async (req, res) => {
+    if (!ObjectId.isValid(req.params.invitationId)) return res.status(400).json({ error: 'Некорректный идентификатор приглашения' })
+    const result = await invitations.deleteOne({ _id: new ObjectId(req.params.invitationId), companyId: req.user.companyId, usedAt: null })
+    if (!result.deletedCount) return res.status(404).json({ error: 'Приглашение не найдено' })
+    res.status(204).end()
+  })
+
+  app.post('/api/ai/analyze-field', requireUser, async (req, res) => {
+    const fieldId = req.body?.field?.id
+    if (typeof fieldId !== 'string' || !ObjectId.isValid(fieldId)) return res.status(400).json({ error: 'Сначала сохраните поле, затем загрузите фото для анализа' })
+    const field = await fields.findOne({ _id: new ObjectId(fieldId), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
     const images = Array.isArray(req.body?.images) ? req.body.images : []
-    const analysisHistory = Array.isArray(req.body?.analysisHistory) ? req.body.analysisHistory.slice(-5) : []
+    const analysisHistory = Array.isArray(field.analysisHistory) ? field.analysisHistory.slice(-5).map((entry) => ({ createdAt: entry.createdAt, analysis: entry.analysis })) : []
     if (!field?.name || !field?.crop || !images.length) return res.status(400).json({ error: 'Передайте поле и хотя бы одно фото' })
     const validImages = images.filter((image) => typeof image === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,/.test(image)).slice(0, 5)
     if (!validImages.length) return res.status(400).json({ error: 'Поддерживаются только JPG, PNG и WEBP' })
@@ -590,23 +816,26 @@ async function start() {
       const current = items.find((item) => item.origin !== 'cdse' || item.geometryHash === currentGeometryHash)
       return current ? publicIndexMeasurement(current) : null
     }))).filter(Boolean)
-    if (!isAgriculturalQuestion(message)) return res.json({ answer: await fallbackAiAnswer(message, observations), source: 'topic-guard', confidence: 1 })
-    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message, observations), source: 'rule-based', confidence: 0, limitations: ['Нет расчётной модели урожая; CSV-измерения не проверяются приложением'] })
+    const historicalRecords = await seasons.find({ fieldId: field._id, companyId: req.user.companyId }).sort({ year: -1 }).toArray()
+    const seasonsHistory = historicalRecords.slice(0, 12).map(publicSeason)
+    const yieldForecast = forecastFromHistory(field, historicalRecords)
+    if (!isAgriculturalQuestion(message)) return res.json({ answer: await fallbackAiAnswer(message, observations, yieldForecast), source: 'topic-guard', confidence: 1 })
+    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message, observations, yieldForecast), source: 'rule-based', confidence: 0, limitations: yieldForecast.limitations })
 
-    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI/EVI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и даты: прогноз урожая и индексы климатического риска не подключены. Упоминай только индексы из контекста с датой и источником: origin=cdse означает расчёт Sentinel-2 L2A по контуру поля и дневному интервалу, origin=user-upload означает CSV пользователя без независимой проверки источника. Нельзя делать вывод о локальных зонах из среднего значения по полю. Погоду упоминай только если она передана в контексте с датой. Не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
+    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI/EVI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и даты: индексы климатического риска и калиброванная погодная модель урожая не подключены. yieldForecast.status=ready означает только историческую медиану прошлых сезонов той же культуры; lower_bound/upper_bound — эмпирические P10/P90, НЕ 80% доверительный интервал. Погода и индексы на числовой ориентир не влияют. История сезонов введена агрономом и независимо не проверяется. Упоминай только индексы из контекста с датой и источником: origin=cdse означает расчёт Sentinel-2 L2A по контуру поля и дневному интервалу, origin=user-upload означает CSV пользователя без независимой проверки источника. Нельзя делать вывод о локальных зонах из среднего значения по полю. Погоду упоминай только если она передана в контексте с датой. Не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
     const snapshot = await weatherSnapshots.findOne({ fieldId: field._id, companyId: req.user.companyId })
     const weather = snapshot?.forecast?.days?.some((day) => day.date >= new Date().toISOString().slice(0, 10)) ? snapshot.forecast : null
-    const context = { region: supportedRegion, field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, updatedAt: field.updatedAt, collectedT: field.harvestTotalT, costs: { fuel: field.fuelUsedL * field.fuelPricePerL, seed: field.seedCost, irrigation: field.irrigationCost, treatment: field.treatmentCost, fertilizer: field.fertilizerCost, machinery: field.machineryCost, storage: field.storageCost, other: field.otherCost } }, weather, observations, yieldForecast: null, risks: null }
+    const context = { region: supportedRegion, field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, updatedAt: field.updatedAt, collectedT: field.harvestTotalT, costs: { fuel: field.fuelUsedL * field.fuelPricePerL, seed: field.seedCost, irrigation: field.irrigationCost, treatment: field.treatmentCost, fertilizer: field.fertilizerCost, machinery: field.machineryCost, storage: field.storageCost, other: field.otherCost } }, weather, observations, seasonsHistory, yieldForecast, risks: null }
     try {
       const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiApiKey}` }, body: JSON.stringify({ model: openAiModel, temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Контекст поля: ${JSON.stringify(context)}\nВопрос агронома: ${message}` }] }) })
       const payload = await openAiResponse.json()
       if (!openAiResponse.ok) throw new Error(payload?.error?.message || 'OpenAI request failed')
       const answer = payload.choices?.[0]?.message?.content?.trim()
       if (!answer) throw new Error('Empty OpenAI response')
-      res.json({ answer, source: 'openai', limitations: ['Прогноз урожайности не подключён; происхождение CSV-измерений не проверяется'] })
+      res.json({ answer, source: 'openai', limitations: yieldForecast.limitations })
     } catch (error) {
       console.error('AI request failed:', error.message)
-      res.json({ answer: await fallbackAiAnswer(message, observations), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
+      res.json({ answer: await fallbackAiAnswer(message, observations, yieldForecast), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
     }
   })
 

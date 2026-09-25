@@ -2,6 +2,11 @@
 import YandexFieldMap from './FieldMap'
 import { buildFieldReportHtml } from './report'
 import { parseIndexCsv, type IndexMeasurement, type IndexName, type IndexResponse } from './indices'
+import AuthScreen from './AuthScreen'
+import TeamPanel from './TeamPanel'
+import SeasonHistoryPanel from './SeasonHistoryPanel'
+import type { SeasonRecord } from './seasons'
+import type { ForecastResult } from './forecast'
 
 type FieldRecord = {
   id?: string
@@ -41,7 +46,7 @@ type FieldAnalysis = {
 }
 
 type Company = { id?: string; name: string; region: string; location: string; fields: string[] }
-type UserRecord = { id: string; name: string; email: string; companyId: string }
+type UserRecord = { id: string; name: string; email: string; companyId: string; role: 'owner' | 'agronomist' }
 type WeatherDay = { date: string; tempMaxC: number | null; tempMinC: number | null; precipitationMm: number | null; rainProbabilityPct: number | null; windMaxKmh: number | null; humidityPct: number | null; weatherCode: number | null }
 type WeatherForecast = { source: string; fetchedAt: string; status: 'current' | 'stale'; coordinates: [number, number]; days: WeatherDay[] }
 type FieldTask = { id: string; fieldId: string; title: string; section: string; priority: 'low' | 'medium' | 'high'; dueDate: string; assignee: string; status: 'open' | 'done'; createdAt: string; updatedAt: string }
@@ -72,7 +77,7 @@ function getStoredUser(): UserRecord | null {
   }
 }
 
-const isDemoUser = () => getStoredUser()?.id === 'demo-user'
+const isDemoUser = () => !import.meta.env.PROD && getStoredUser()?.id === 'demo-user'
 
 async function fieldRequest(path: string, method = 'GET', data?: FieldRecord | FieldRecord[]) {
   const token = localStorage.getItem('smartagro-token')
@@ -295,6 +300,7 @@ function clamp(value: number, min: number, max: number) {
 
 function App() {
   const [selectedCompany, setSelectedCompany] = useState(getStoredCompany)
+  const [currentUser, setCurrentUser] = useState<UserRecord | null>(getStoredUser)
   const [authenticated, setAuthenticated] = useState(() => !!localStorage.getItem('smartagro-token') || (localStorage.getItem('smartagro-authenticated') === 'true' && isDemoUser()))
   const [fieldRecords, setFieldRecords] = useState<FieldRecord[]>(() => isDemoUser() ? getStoredFields(getCompanyStorageKey()) : [])
   const [selectedFieldName, setSelectedFieldName] = useState<string>(() => getStoredFields(getCompanyStorageKey())[0]?.name || 'Поле 01')
@@ -323,6 +329,7 @@ function App() {
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'ready' | 'denied'>('idle')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [teamOpen, setTeamOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [weather, setWeather] = useState<WeatherForecast | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
@@ -334,6 +341,10 @@ function App() {
   const [taskSubmitting, setTaskSubmitting] = useState(false)
   const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null)
   const [taskDraft, setTaskDraft] = useState({ title: '', section: '', priority: 'medium' as FieldTask['priority'], dueDate: '', assignee: '' })
+  const [forecast, setForecast] = useState<ForecastResult | null>(null)
+  const [forecastLoading, setForecastLoading] = useState(false)
+  const [forecastError, setForecastError] = useState('')
+  const [forecastRefresh, setForecastRefresh] = useState(0)
 
   const persistFields = (nextFields: FieldRecord[]) => {
     setFieldRecords(nextFields)
@@ -344,6 +355,11 @@ function App() {
     setFieldsLoading(true)
     setFieldsError('')
     try {
+      const identity = await authenticatedRequest<{ user: UserRecord; company: Company }>('/api/auth/me')
+      setCurrentUser(identity.user)
+      setSelectedCompany(identity.company)
+      localStorage.setItem('smartagro-user', JSON.stringify(identity.user))
+      localStorage.setItem('smartagro-company', JSON.stringify(identity.company))
       const items = await fieldRequest('/api/fields') as FieldRecord[]
       setFieldRecords(items)
       setSelectedFieldName(items[0]?.name || '')
@@ -360,6 +376,20 @@ function App() {
   }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
+  const visibleForecast = forecast && selectedField.id && forecast.fieldId === selectedField.id && forecast.features.crop.toLocaleLowerCase('ru-RU') === selectedField.crop.toLocaleLowerCase('ru-RU') && forecast.features.fieldAreaHa === (selectedField.plantedAreaHa > 0 ? selectedField.plantedAreaHa : null) ? forecast : null
+
+  useEffect(() => {
+    let cancelled = false
+    setForecast(null)
+    setForecastError('')
+    if (!authenticated || !selectedField.id || isDemoUser()) { setForecastLoading(false); return }
+    setForecastLoading(true)
+    authenticatedRequest<ForecastResult>(`/api/fields/${encodeURIComponent(selectedField.id)}/yield-forecast`)
+      .then((result) => { if (!cancelled) setForecast(result) })
+      .catch((error) => { if (!cancelled) setForecastError(error instanceof Error ? error.message : 'Не удалось получить прогноз') })
+      .finally(() => { if (!cancelled) setForecastLoading(false) })
+    return () => { cancelled = true }
+  }, [authenticated, selectedField.id, selectedField.crop, selectedField.plantedAreaHa, forecastRefresh])
   const indexName: IndexName = layer === 'Спутник' || layer === 'Топография' ? 'ndvi' : layer.toLowerCase() as IndexName
   const visibleIndex = indexData?.fieldId === selectedField.id && indexData?.index === indexName && indexData?.period === indexPeriod ? indexData : null
 
@@ -459,13 +489,17 @@ function App() {
     const agronomistCosts = ['seedCost', 'irrigationCost', 'treatmentCost', 'fertilizerCost', 'machineryCost', 'storageCost', 'otherCost']
       .reduce((sum, key) => sum + Number(selectedField[key as keyof FieldRecord] || 0), 0)
     const directCosts = fuelExpense + agronomistCosts
-    return { directCosts }
-  }, [selectedField])
+    const expectedHarvest = visibleForecast?.status === 'ready' ? visibleForecast.totalHarvestT : null
+    const revenue = expectedHarvest === null ? null : expectedHarvest * Number(selectedField.grainPricePerT || 0)
+    const margin = revenue === null ? null : revenue - directCosts
+    return { directCosts, expectedHarvest, revenue, margin }
+  }, [selectedField, visibleForecast])
 
 
   const authenticate = (user: UserRecord, token?: string) => {
     localStorage.setItem('smartagro-authenticated', 'true')
     localStorage.setItem('smartagro-user', JSON.stringify(user))
+    setCurrentUser(user)
     if (token) localStorage.setItem('smartagro-token', token)
     else localStorage.removeItem('smartagro-token')
     const companyFields = token ? [] : getStoredFields(getCompanyStorageKey(user.companyId, selectedCompany.name))
@@ -475,6 +509,20 @@ function App() {
     setFieldsLoading(!!token)
     setAgronomistName(user.name)
     setAuthenticated(true)
+  }
+
+  const logout = async () => {
+    const token = localStorage.getItem('smartagro-token')
+    if (token) {
+      const response = await fetch('/api/auth/session', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      if (!response.ok && response.status !== 401) throw new Error('Не удалось завершить сессию на сервере. Повторите выход при доступной сети.')
+    }
+    for (const key of ['smartagro-authenticated', 'smartagro-user', 'smartagro-company', 'smartagro-token']) localStorage.removeItem(key)
+    setCurrentUser(null)
+    setFieldRecords([])
+    setProfileOpen(false)
+    setTeamOpen(false)
+    setAuthenticated(false)
   }
 
   const selectCompany = (company: Company) => {
@@ -684,7 +732,7 @@ function App() {
             <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
             <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Сумма по полям: ${fieldRecords.reduce((sum, field) => sum + field.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
             <KpiCard label="Фактическая урожайность" value={formatMeasurement(actualYield(selectedField), 'т/га')} meta={`Ввод агронома · ${formatDateTime(selectedField.updatedAt)}`} icon="✧" tone="blue" />
-            <KpiCard label="Ожидаемая маржа" value="Нет данных" meta="Требуется источник прогноза урожая" icon="₸" tone="orange" />
+            <KpiCard label="Маржа по истории" value={economics.margin === null ? 'Нет данных' : `${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`} meta={visibleForecast?.status === 'ready' ? 'Исторический сценарий · не гарантия' : 'Нужны 3 прошлых сезона той же культуры'} icon="₸" tone="orange" />
           </section>
 
           <section className="hero-grid" id="fields-map">
@@ -707,20 +755,20 @@ function App() {
               <p className="eyebrow green-text">AI SMART FARM INSIGHT</p>
               <h2>{selectedField.name} · прогноз по полю</h2>
               <p className="insight-copy">
-                Прогноз урожайности для этого поля ещё не подключён. После подключения проверяемого источника здесь появятся расчёт и его исходные данные.
+                {visibleForecast?.status === 'ready' ? 'Исторический ориентир рассчитан как медиана фактической урожайности прошлых сезонов этой культуры. Погода и спутниковые индексы пока не корректируют число.' : 'Для исторического ориентира нужны три завершённых сезона выбранной культуры с площадью, сбором и источником записи.'}
               </p>
               <div className="insight-facts">
                 <div>
                   <span className="fact-icon">↗</span>
-                  <div><small>Прогноз урожая</small><b>Нет данных</b></div>
+                  <div><small>Исторический ориентир</small><b>{visibleForecast?.status === 'ready' ? `${visibleForecast.prediction!.toFixed(2)} т/га` : 'Нет данных'}</b></div>
                 </div>
                 <div>
                   <span className="fact-icon amber">!</span>
-                  <div><small>Рекомендация</small><b>Нужны данные поля</b></div>
+                  <div><small>Следующий шаг</small><b>Проверить историю и поле</b></div>
                 </div>
               </div>
               <button className="dark-button" onClick={() => setChatOpen(true)}>Разобрать с AI-агентом <span>→</span></button>
-              <p className="source-note">Расходы и сбор — ввод агронома · прогноз и индексы — источник не подключён</p>
+              <p className="source-note">{visibleForecast?.status === 'ready' ? `${visibleForecast.modelVersion} · низкая уверенность · данные агронома` : 'Расходы и сбор — ввод агронома; данных для ориентира мало'}</p>
             </div>
           </section>
 
@@ -745,6 +793,17 @@ function App() {
                 </button>
               )
             })}
+          </section>
+
+          <SeasonHistoryPanel key={selectedField.id || selectedField.name} fieldId={selectedField.id} fieldName={selectedField.name} crop={selectedField.crop} areaHa={selectedField.plantedAreaHa || selectedField.areaHa} onChanged={() => setForecastRefresh((value) => value + 1)} />
+
+          <section className="forecast-panel panel" id="yield-forecast">
+            <div className="panel-header"><div><h2>Ориентир урожайности по истории · {selectedField.name}</h2><p>{visibleForecast ? `${visibleForecast.modelVersion} · рассчитано ${formatDateTime(visibleForecast.calculatedAt)} · ${visibleForecast.horizon}` : forecastLoading ? 'Считаем по прошлым сезонам…' : 'Модель прошлых сезонов'}</p></div></div>
+            {visibleForecast?.status === 'ready' ? <div className="forecast-body">
+              <div className="forecast-summary"><div><small>Медиана прошлых сезонов</small><strong>{visibleForecast.prediction!.toFixed(2)} т/га</strong><span>Общий сбор при текущей посевной площади: {visibleForecast.totalHarvestT === null ? 'Нет данных о площади' : `${visibleForecast.totalHarvestT.toFixed(1)} т`}</span></div><div><small>Наблюдавшийся диапазон P10–P90</small><strong>{visibleForecast.lower_bound!.toFixed(2)}–{visibleForecast.upper_bound!.toFixed(2)} т/га</strong><span>Не является доверительным интервалом или гарантией</span></div><div><small>Уверенность</small><strong>Низкая</strong><span>Без проверки на погоде и новых сезонах</span></div></div>
+              <div className="forecast-scenarios">{(['unfavorable', 'baseline', 'favorable'] as const).map((key) => <div key={key}><small>{key === 'unfavorable' ? 'Неблагоприятный · минимум' : key === 'baseline' ? 'Базовый · медиана' : 'Благоприятный · максимум'}</small><b>{visibleForecast.scenarios![key].yieldPerHa.toFixed(2)} т/га</b><span>{visibleForecast.scenarios![key].totalHarvestT?.toFixed(1) ?? '—'} т сбора</span></div>)}</div>
+              <details className="forecast-details"><summary>Показать расчёт и ограничения</summary><p>{visibleForecast.features.method}. Использовано сезонов: {visibleForecast.features.seasons.length}. Погодные и спутниковые поправки: не применялись.</p><ul>{visibleForecast.features.seasons.map((season) => <li key={`${season.year}-${season.crop}`}>{season.year} · {season.crop}: {season.harvestTotalT} т / {season.plantedAreaHa} га = {season.yieldPerHa.toFixed(2)} т/га · источник: {season.source}</li>)}</ul><ul>{visibleForecast.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></details>
+            </div> : <div className="data-empty"><strong>{forecastLoading ? 'Загружаем историю…' : 'Исторического ориентира пока нет'}</strong><span>{forecastError || visibleForecast?.reason || 'Добавьте минимум три завершённых сезона той же культуры в историю поля.'}</span></div>}
           </section>
 
           <section className="lower-grid" id="growth-chart">
@@ -815,29 +874,30 @@ function App() {
           <section className="economy-strip panel" id="economy-panel">
             <div>
               <p className="eyebrow">ЭКОНОМИКА {selectedField.name.toUpperCase()}</p>
-              <h2>Прямые затраты поля</h2>
+              <h2>{visibleForecast?.status === 'ready' ? 'Сценарная экономика поля' : 'Прямые затраты поля'}</h2>
               <p className="muted">Площадь хозяйства {totalArea} га · расходы — ввод агронома, обновлено {formatDateTime(selectedField.updatedAt)}.</p>
             </div>
             <div className="economy-controls">
-              <div className="economy-readonly"><span>Прогноз урожайности</span><strong>Нет данных</strong><small>Источник прогнозной урожайности не подключён</small></div>
+              <div className="economy-readonly"><span>Исторический ориентир</span><strong>{visibleForecast?.status === 'ready' ? `${visibleForecast.prediction!.toFixed(2)} т/га` : 'Нет данных'}</strong><small>{visibleForecast?.status === 'ready' ? 'Медиана прошлого, низкая уверенность' : 'Нужно 3 прошлых сезона той же культуры'}</small></div>
               <label className="economy-price">Топливо, ₸/л<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, fuelPricePerL: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
               <label className="economy-price">Цена, ₸/т<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, grainPricePerT: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
             </div>
             <div className="economy-result">
-              <small>Ожидаемая маржа · нет данных</small>
-              <b>—</b>
-              <span>Выручка: нужен прогноз урожая</span>
+              <small>{economics.margin === null ? 'Маржа · нет данных' : 'Маржа по историческому сценарию'}</small>
+              <b className={economics.margin !== null && economics.margin < 0 ? 'margin-negative' : ''}>{economics.margin === null ? '—' : `${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`}</b>
+              <span>Выручка: {economics.revenue === null ? 'нужна история сезонов' : `${Math.round(economics.revenue).toLocaleString('ru-RU')} ₸`}</span>
               <span>Расходы: {Math.round(economics.directCosts).toLocaleString('ru-RU')} ₸</span>
-              <span>Ожидаемый сбор: нет данных</span>
+              <span>Сбор по медиане: {economics.expectedHarvest === null ? 'нет данных' : `${economics.expectedHarvest.toFixed(1)} т`}</span>
             </div>
           </section>
 
-          <footer className="page-footer"><span>SmartAgro AI Advisor · учёт полей и затрат</span><span>Погода · Open-Meteo; индексы и прогноз урожая не подключены</span></footer>
+          <footer className="page-footer"><span>SmartAgro AI Advisor · учёт полей и затрат</span><span>Погода · Open-Meteo; индексы · CDSE/CSV; исторический ориентир не гарантирует урожай</span></footer>
         </div>
       </main>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
-      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); localStorage.removeItem('smartagro-token'); setProfileOpen(false); setAuthenticated(false) }} />}
+      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} role={currentUser?.role || 'agronomist'} onClose={() => setProfileOpen(false)} onManageTeam={() => { setProfileOpen(false); setTeamOpen(true) }} onLogout={logout} />}
+      {teamOpen && currentUser?.role === 'owner' && <TeamPanel company={selectedCompany.name} currentUserId={currentUser.id} onClose={() => setTeamOpen(false)} />}
       {reportOpen && <ReportPanel company={selectedCompany.name} field={selectedField} weather={weather} tasks={tasks} tasksError={tasksError} onClose={() => setReportOpen(false)} />}
       {importOpen && selectedField.id && <IndexImportPanel key={selectedField.id} fieldId={selectedField.id} fieldName={selectedField.name} onClose={() => setImportOpen(false)} onImported={(index) => { setLayer(index.toUpperCase()); setIndexRefresh((value) => value + 1); setImportOpen(false) }} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
@@ -854,8 +914,15 @@ function SettingsPanel({ onClose, onSave }: { onClose: () => void; onSave: () =>
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">НАСТРОЙКИ</p><h2>Рабочая среда</h2><p>Настройте уведомления и формат данных для dashboard.</p><label className="setting-row"><span><b>Уведомления о рисках</b><small>Засуха, суховей, снег и погодные окна</small></span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><label className="form-label">Единицы измерения<select className="form-input" value={units} onChange={(event) => setUnits(event.target.value)}><option>Метрические</option><option>Имперские</option></select></label><div className="settings-source"><span className="status-dot" /><div><b>Источники подключены</b><small>MongoDB · Open-Meteo · OpenStreetMap</small></div></div><button className="dark-button" onClick={saveSettings}>Сохранить настройки <span>✓</span></button></div></div>
 }
 
-function ProfilePanel({ name, company, onClose, onLogout }: { name: string; company: string; onClose: () => void; onLogout: () => void }) {
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">АМ</div><p className="eyebrow green-text">ПРОФИЛЬ АГРОНОМА</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>Агроном</b></span><span><small>Доступ</small><b>Рабочее место ТОО</b></span></div><button className="outline-button profile-button" onClick={onLogout}>Выйти из аккаунта</button></div></div>
+function ProfilePanel({ name, company, role, onClose, onLogout, onManageTeam }: { name: string; company: string; role: 'owner' | 'agronomist'; onClose: () => void; onLogout: () => Promise<void>; onManageTeam: () => void }) {
+  const [error, setError] = useState('')
+  const [leaving, setLeaving] = useState(false)
+  const leave = async () => {
+    setLeaving(true)
+    setError('')
+    try { await onLogout() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось выйти'); setLeaving(false) }
+  }
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">ПРОФИЛЬ</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>{role === 'owner' ? 'Владелец ТОО' : 'Агроном'}</b></span></div>{role === 'owner' && <button className="outline-button profile-button" onClick={onManageTeam}>Сотрудники и приглашения</button>}{error && <p className="form-error" role="alert">{error}</p>}<button className="outline-button profile-button" onClick={() => void leave()} disabled={leaving}>{leaving ? 'Выходим…' : 'Выйти из аккаунта'}</button></div></div>
 }
 
 function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { company: string; field: FieldRecord; weather: WeatherForecast | null; tasks: FieldTask[]; tasksError: string; onClose: () => void }) {
@@ -866,8 +933,12 @@ function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { 
     setGenerating(true)
     setError('')
     try {
-      const indices = field.id ? await Promise.all((['ndvi', 'evi', 'ndwi'] as const).map((name) => authenticatedRequest<IndexResponse>(`/api/fields/${encodeURIComponent(field.id!)}/indices?index=${name}&period=90d`))) : []
-      const report = buildFieldReportHtml(company, field, weather, tasks, new Date(), !field.id ? 'поле не сохранено на сервере' : tasksError || null, indices)
+      const [indices, seasons, forecast] = field.id ? await Promise.all([
+        Promise.all((['ndvi', 'evi', 'ndwi'] as const).map((name) => authenticatedRequest<IndexResponse>(`/api/fields/${encodeURIComponent(field.id!)}/indices?index=${name}&period=90d`))),
+        authenticatedRequest<SeasonRecord[]>(`/api/fields/${encodeURIComponent(field.id)}/seasons`),
+        authenticatedRequest<ForecastResult>(`/api/fields/${encodeURIComponent(field.id)}/yield-forecast`),
+      ]) : [[], [] as SeasonRecord[], null]
+      const report = buildFieldReportHtml(company, field, weather, tasks, new Date(), !field.id ? 'поле не сохранено на сервере' : tasksError || null, indices, seasons, forecast)
       const url = URL.createObjectURL(new Blob([report], { type: 'text/html;charset=utf-8' }))
       const link = document.createElement('a')
       link.href = url
@@ -880,7 +951,7 @@ function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { 
       setGenerating(false)
     }
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ ПО ПОЛЮ</p><h2>{field.name}</h2><p>Отчёт содержит контур, учёт урожая и затрат, загруженные индексы за 90 дней, прогноз погоды и открытые задачи. Отсутствующие данные отмечены отдельно.</p><div className="report-preview"><b>{company}</b><span>{field.crop} · {field.areaHa} га</span><span>Погода: {weather ? `${weather.source} · ${formatDateTime(weather.fetchedAt)}` : 'нет данных'}</span><span>{tasksError || !field.id ? 'Задачи: нет данных' : `Открытых задач: ${tasks.filter((task) => task.status === 'open').length}`}</span></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="dark-button" disabled={generating} onClick={() => void download()}>{generating ? 'Собираем показатели…' : 'Скачать HTML-отчёт'} <span>↓</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ ПО ПОЛЮ</p><h2>{field.name}</h2><p>Отчёт содержит контур, историю сезонов, исторический ориентир, учёт затрат, загруженные индексы за 90 дней, погоду и открытые задачи. Отсутствующие данные отмечены отдельно.</p><div className="report-preview"><b>{company}</b><span>{field.crop} · {field.areaHa} га</span><span>Погода: {weather ? `${weather.source} · ${formatDateTime(weather.fetchedAt)}` : 'нет данных'}</span><span>{tasksError || !field.id ? 'Задачи: нет данных' : `Открытых задач: ${tasks.filter((task) => task.status === 'open').length}`}</span></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="dark-button" disabled={generating} onClick={() => void download()}>{generating ? 'Собираем показатели…' : 'Скачать HTML-отчёт'} <span>↓</span></button></div></div>
 }
 
 function IndexImportPanel({ fieldId, fieldName, onClose, onImported }: { fieldId: string; fieldName: string; onClose: () => void; onImported: (index: IndexName) => void }) {
@@ -1209,6 +1280,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
 
   const analyzePhotos = async () => {
     const photos = draft.fieldPhotos ?? []
+    if (!draft.id || !localStorage.getItem('smartagro-token')) { setPhotoError('Сначала сохраните поле в аккаунте, затем откройте его для анализа фото'); return }
     if (!photos.length) {
       setPhotoError('Сначала загрузите хотя бы одно фото поля')
       return
@@ -1218,11 +1290,10 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
     try {
       const response = await fetch('/api/ai/analyze-field', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token')}` },
         body: JSON.stringify({
-          field: { name: draft.name, crop: draft.crop, areaHa: draft.areaHa, sowingDate: draft.sowingDate },
+          field: { id: draft.id },
           images: photos,
-          analysisHistory: (draft.analysisHistory ?? []).map((entry) => ({ createdAt: entry.createdAt, analysis: entry.analysis })),
         }),
       })
       const result = await response.json()
@@ -1332,10 +1403,10 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
         {draft.crop === 'Другая культура' && <label className="form-label">Название культуры<input className="form-input" value={customCrop} onChange={(event) => setCustomCrop(event.target.value)} placeholder="Например, Горох" /></label>}
         <label className="form-label">Дата сева<input type="date" className="form-input" value={draft.sowingDate} onChange={(event) => updateField('sowingDate', event.target.value)} /></label>
         <div className="field-photo-box">
-          <div><strong>Фото поля для AI-анализа</strong><small>Загрузите до 5 снимков именно этого поля: общий вид, растения и проблемные зоны.</small></div>
+          <div><strong>Фото поля для AI-анализа</strong><small>Загрузите до 5 снимков этого поля. AI-анализ доступен после сохранения поля в аккаунте.</small></div>
           <input className="form-input" type="file" accept="image/*" multiple onChange={(event) => addPhotos(event.target.files)} />
           {!!draft.fieldPhotos?.length && <div className="field-photo-preview">{draft.fieldPhotos.map((photo, index) => <div key={`${photo.slice(0, 24)}-${index}`}><img src={photo} alt={`Фото поля ${index + 1}`} /><button type="button" onClick={() => setDraft((current) => ({ ...current, fieldPhotos: current.fieldPhotos?.filter((_, photoIndex) => photoIndex !== index) }))}>×</button></div>)}</div>}
-          <button type="button" className="outline-button" onClick={analyzePhotos} disabled={photoLoading || !draft.fieldPhotos?.length}>{photoLoading ? 'AI анализирует фото…' : '✦ Проанализировать фото'}</button>
+          <button type="button" className="outline-button" onClick={analyzePhotos} disabled={photoLoading || !draft.id || !draft.fieldPhotos?.length}>{photoLoading ? 'AI анализирует фото…' : '✦ Проанализировать фото'}</button>
           {draft.photoAnalysis && <div className="field-photo-analysis"><b>Вывод AI</b><p>{draft.photoAnalysis}</p></div>}
           {photoError && <small className="setup-error">{photoError}</small>}
         </div>
@@ -1465,7 +1536,7 @@ function FieldSetupScreen({ company, userLocation, onComplete: completeFields }:
   return <div className="setup-shell"><div className="setup-top"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span></div><div className="setup-content"><div className="setup-copy"><p className="eyebrow green-text">ТОО НАЙДЕНО</p><h1>Подключим поля<br /><em>к рабочему столу</em></h1><p>ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}. Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.</p><div className="company-found"><span className="company-badge">⌂</span><div><b>{company.name}</b><small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small></div><i>Найдено</i></div><div className="setup-form"><label>Номер или название поля<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" /></label><label>Что посадили<select value={crop} onChange={(event) => setCrop(event.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label><label>Когда сеяли<input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} /></label><button className="setup-add" onClick={addField}>＋ Добавить поле</button>{error && <small className="setup-error">{error}</small>}</div><div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">Добавьте первое поле, чтобы продолжить</span> : fields.map((field, index) => <div className="setup-field-row" key={`${field.name}-${index}`}><span className="field-health healthy" /><div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button></div>)}</div><button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>Сохранить поля и открыть рабочий стол</button></div><div className="setup-map"><div className="setup-map-stage"><YandexFieldMap fields={fields.map((field) => field.name)} customFields={[]} userLocation={userLocation} fieldPoints={fields.map((field) => field.coordinates)} fieldAreas={fields.map((field) => field.areaHa)} /><div className="setup-map-note" /></div></div></div></div>
 }
 
-function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord, token?: string) => void; onCompanySelected: (company: Company) => void }) {
+function LegacyAuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord, token?: string) => void; onCompanySelected: (company: Company) => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [company, setCompany] = useState(demoCompanies[0].name)
@@ -1545,7 +1616,7 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
   }
 
   const demoLogin = () => {
-    const demoUser: UserRecord = { id: 'demo-user', name: 'Демо-агроном', email: 'demo@smartagro.local', companyId: 'demo-company' }
+    const demoUser: UserRecord = { id: 'demo-user', name: 'Демо-агроном', email: 'demo@smartagro.local', companyId: 'demo-company', role: 'agronomist' }
     const demoCompany: Company = { id: 'demo-company', name: 'ТОО «Дала Агро»', region: 'Акмолинская область', location: 'Целиноградский район', fields: [] }
     onCompanySelected(demoCompany)
     onAuthenticated(demoUser)
