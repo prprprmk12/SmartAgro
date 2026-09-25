@@ -304,7 +304,7 @@ function App() {
   const [saveError, setSaveError] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [active, setActive] = useState('Обзор')
-  const [layer, setLayer] = useState('NDVI')
+  const [layer, setLayer] = useState('Спутник')
   const [indexPeriod, setIndexPeriod] = useState<'7d' | '30d' | '90d'>('30d')
   const [indexData, setIndexData] = useState<IndexResponse | null>(null)
   const [indexLoading, setIndexLoading] = useState(false)
@@ -360,7 +360,7 @@ function App() {
   }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
-  const indexName: IndexName = layer === 'Базовая карта' ? 'ndvi' : layer.toLowerCase() as IndexName
+  const indexName: IndexName = layer === 'Спутник' || layer === 'Топография' ? 'ndvi' : layer.toLowerCase() as IndexName
   const visibleIndex = indexData?.fieldId === selectedField.id && indexData?.index === indexName && indexData?.period === indexPeriod ? indexData : null
 
   useEffect(() => {
@@ -690,15 +690,15 @@ function App() {
           <section className="hero-grid" id="fields-map">
             <div className="map-card panel">
               <div className="panel-header">
-                <div><h2>Состояние полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · OpenStreetMap</p></div>
+                <div><h2>Карта полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · {layer === 'Топография' ? 'OpenTopoMap (данные OpenStreetMap и SRTM)' : 'Esri World Imagery (мозаика снимков; дата зависит от района)'}</p></div>
                 <div className="map-actions">
                   <button className="small-icon" title="Информация и история поля" onClick={() => setFieldInfoOpen(true)}>i</button>
                   <button className="small-icon" onClick={() => openFieldEditor(selectedField.name)}>✎</button>
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexObservation={layer !== 'Базовая карта' ? visibleIndex?.latest ?? null : null} onSelectField={setSelectedFieldName} />
-                <div className="layer-switcher">{['NDVI', 'EVI', 'NDWI', 'Базовая карта'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexObservation={!['Спутник', 'Топография'].includes(layer) ? visibleIndex?.latest ?? null : null} onSelectField={setSelectedFieldName} />
+                <div className="layer-switcher">{['Спутник', 'Топография', 'NDVI', 'EVI', 'NDWI'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
             </div>
 

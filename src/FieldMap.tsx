@@ -57,7 +57,7 @@ function popup(field: MapField, approximate: boolean, observation?: IndexMeasure
 
 export default function FieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer, indexObservation, onSelectField }: Props) {
   const element = useRef<HTMLDivElement>(null)
-  const [tileError, setTileError] = useState(false)
+  const [tileWarning, setTileWarning] = useState('')
   const [ready, setReady] = useState(false)
   const selectionMode = allowOnlyZones || selectedField === undefined
   const dataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones, layer, indexObservation })
@@ -67,14 +67,40 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
   useEffect(() => {
     if (!element.current) return
     setReady(false)
-    setTileError(false)
+    setTileWarning('')
     const abort = new AbortController()
     const map = L.map(element.current, { doubleClickZoom: false, zoomControl: true }).setView([51.1, 71.47], selectionMode ? 7 : 11)
     let tileFailures = 0
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).on('tileerror', () => { if (++tileFailures >= 3) setTileError(true) }).addTo(map)
+    let fallbackAdded = false
+    const topographicTiles = () => L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      subdomains: 'abc', maxNativeZoom: 17, maxZoom: 19,
+      attribution: 'Данные: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, SRTM | стиль: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA</a>)',
+    })
+    const standardTiles = () => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' })
+    const topographicMode = layer === 'Топография'
+    const baseTiles = topographicMode ? topographicTiles() : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Imagery &copy; Esri, Vantor, Earthstar Geographics, GIS User Community',
+    })
+    baseTiles.on('tileerror', () => {
+      if (++tileFailures < 3 || fallbackAdded) return
+      fallbackAdded = true
+      const fallbackTiles = topographicMode ? standardTiles() : topographicTiles()
+      if (!topographicMode) {
+        let fallbackFailures = 0
+        fallbackTiles.on('tileerror', () => {
+          if (++fallbackFailures < 3) return
+          fallbackTiles.off('tileerror')
+          const osm = standardTiles().addTo(map)
+          osm.bringToBack()
+          fallbackTiles.remove()
+          setTileWarning('Спутниковая и топографическая подложки недоступны; показана стандартная OpenStreetMap.')
+        })
+      }
+      fallbackTiles.addTo(map)
+      fallbackTiles.bringToBack()
+      baseTiles.remove()
+      setTileWarning(topographicMode ? 'Топографическая подложка недоступна; показана стандартная OpenStreetMap.' : 'Спутниковая подложка недоступна; показана топографическая OpenTopoMap.')
+    }).addTo(map)
 
     let regionBoundaries: Point[][] = [fallbackRegion]
     const regionLayer = L.layerGroup().addTo(map)
@@ -113,11 +139,11 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
       if (!exact && !field.coordinates) continue
       const position = field.coordinates ?? field.boundary![0]
       const outline = exact ? field.boundary! : square(position, field.areaHa)
-      const observation = active && layer !== 'Базовая карта' ? indexObservation : null
+      const observation = active && layer !== 'Спутник' && layer !== 'Топография' ? indexObservation : null
       const fillColor = observation && exact ? { ndvi: '#3d9860', evi: '#308b85', ndwi: '#367fb0' }[observation.index] : active ? '#308d55' : '#93aa65'
       const polygon = L.polygon(outline, {
         color: active ? '#ffffff' : '#dcebb0', weight: active ? 4 : 2,
-        fillColor, fillOpacity: exact ? 0.5 : 0.18,
+        fillColor, fillOpacity: exact ? observation ? 0.24 : 0.12 : 0.08,
         dashArray: exact ? undefined : '6 4', interactive: !selectionMode,
       }).addTo(map)
       polygon.bindPopup(popup(field, !exact, observation))
@@ -182,5 +208,5 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     return () => { abort.abort(); clearTimeout(resize); if (clickTimer) clearTimeout(clickTimer); map.remove() }
   }, [dataKey])
 
-  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileError && <div className="map-warning">Не удалось загрузить подложку OpenStreetMap. Проверьте соединение.</div>}{!selectionMode && layer && layer !== 'Базовая карта' && <div className="map-data-note">{indexObservation ? `Среднее ${layer}: ${indexObservation.value.toFixed(3)} · ${indexObservation.date} · ${indexObservation.source} (${indexObservation.origin === 'cdse' ? 'CDSE по контуру' : 'CSV пользователя, источник не проверен'}; не карта зон)` : `Нет данных ${layer} для выбранного периода`}</div>}</div>
+  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileWarning && <div className="map-warning">{tileWarning}</div>}{!selectionMode && layer && layer !== 'Спутник' && layer !== 'Топография' && <div className="map-data-note">{indexObservation ? `Среднее ${layer}: ${indexObservation.value.toFixed(3)} · ${indexObservation.date} · ${indexObservation.source} (${indexObservation.origin === 'cdse' ? 'CDSE по контуру' : 'CSV пользователя, источник не проверен'}; не карта зон)` : `Нет данных ${layer} для выбранного периода`}</div>}</div>
 }
