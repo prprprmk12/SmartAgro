@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fetchWeather } from './weather.mjs'
-import { fetchCdseMeasurements, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
+import { CdseError, fetchCdseMeasurements, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -404,9 +404,19 @@ async function start() {
       else await cdseSyncs.insertOne({ companyId: req.user.companyId, fieldId, ...syncData })
       res.json({ imported: measurements.length, checkedAt: now.toISOString(), source: cdseSource, nextAllowedAt: new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString() })
     } catch (error) {
-      console.error('CDSE sync failed:', error.message)
-      const quotaExceeded = /HTTP 429/.test(error.message)
-      res.status(quotaExceeded ? 429 : 502).json({ error: quotaExceeded ? 'Превышен лимит запросов CDSE. Повторите позже.' : 'CDSE временно недоступен или доступ не настроен. Проверьте ключи и журнал сервера.' })
+      const requestId = crypto.randomUUID()
+      if (error instanceof CdseError) {
+        console.error('CDSE sync failed:', { requestId, stage: error.stage, status: error.status, reason: error.reason })
+        const message = error.status === 429 ? 'Превышен лимит CDSE. Повторите позже.'
+          : error.stage === 'auth' ? `Не удалось авторизоваться в CDSE${error.status ? ` (HTTP ${error.status})` : ''}. Проверьте OAuth Client ID/Secret.`
+            : error.status === 400 ? 'CDSE отклонил параметры расчёта (HTTP 400).'
+              : error.status === 401 || error.status === 403 ? `CDSE не разрешил расчёт (HTTP ${error.status}). Проверьте доступ OAuth Client к Sentinel Hub.`
+                : error.status === 0 ? 'CDSE не ответил по сети или истекло время ожидания.'
+                  : `CDSE вернул HTTP ${error.status}.`
+        return res.status(error.status === 429 ? 429 : error.status === 0 ? 504 : 502).json({ error: `${message} Причина: ${error.reason}`, stage: error.stage, cdseStatus: error.status, requestId })
+      }
+      console.error('CDSE sync failed:', { requestId, stage: 'internal', type: error?.name || 'Error' })
+      res.status(500).json({ error: `Не удалось сохранить ответ CDSE. Код запроса: ${requestId}. Проверьте журнал сервера.`, requestId })
     } finally {
       cdseInFlight.delete(fieldId.toString())
     }

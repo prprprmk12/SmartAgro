@@ -20,6 +20,7 @@ test('CDSE request projects the real field polygon to metres and masks unsuitabl
   assert.equal(request.aggregation.timeRange.to, '2026-09-26T00:00:00.000Z')
   assert.match(cdseEvalscript, /SCL === 4 \|\| s\.SCL === 5/)
   assert.match(cdseEvalscript, /B11/)
+  assert.doesNotMatch(cdseEvalscript, /units: "REFLECTANCE"/)
   assert.throws(() => geometryFromBoundary([[51.4, 71.5], [51.4, 71.5], [51.4, 71.5]]), /контур|Контур/i)
 })
 

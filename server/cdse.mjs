@@ -6,6 +6,42 @@ export const cdseProcessingVersion = 's2-l2a-clear-pixels-20m-v1'
 let cachedToken = null
 let tokenExpiresAt = 0
 
+export class CdseError extends Error {
+  constructor(stage, status, reason) {
+    super(`CDSE ${stage}${status ? ` HTTP ${status}` : ''}: ${reason}`)
+    this.name = 'CdseError'
+    this.stage = stage
+    this.status = status
+    this.reason = reason
+  }
+}
+
+function safeReason(value) {
+  let reason = String(value || 'Нет описания ошибки')
+  for (const secret of [process.env.CDSE_CLIENT_SECRET, cachedToken]) {
+    if (secret) reason = reason.replaceAll(secret, '[скрыто]')
+  }
+  return reason.replace(/<[^>]+>/g, ' ').replace(/\b(Bearer|client_secret|access_token|refresh_token)\b\s*[:=]?\s*[^\s&"']+/gi, '[скрыто]').replace(/\s+/g, ' ').slice(0, 280).trim()
+}
+
+async function providerError(response, stage) {
+  const raw = await response.text().catch(() => '')
+  let details
+  try {
+    const body = JSON.parse(raw)
+    details = body?.error?.message || body?.error?.reason || body?.error_description || body?.message || (typeof body?.error === 'string' ? body.error : null)
+  } catch { /* Some upstream errors return plain text. */ }
+  return new CdseError(stage, response.status, safeReason(details || (raw.startsWith('<') ? response.statusText : raw) || response.statusText))
+}
+
+async function fetchProvider(url, options, stage) {
+  try {
+    return await fetch(url, options)
+  } catch (error) {
+    throw new CdseError(stage, 0, error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'истекло время ожидания ответа' : 'сервис недоступен по сети')
+  }
+}
+
 export function isCdseConfigured() {
   return Boolean(process.env.CDSE_CLIENT_ID && process.env.CDSE_CLIENT_SECRET)
 }
@@ -13,10 +49,11 @@ export function isCdseConfigured() {
 async function getToken() {
   if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken
   const body = new URLSearchParams({ grant_type: 'client_credentials', client_id: process.env.CDSE_CLIENT_ID, client_secret: process.env.CDSE_CLIENT_SECRET })
-  const response = await fetch(tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(10000) })
-  if (!response.ok) throw new Error(`CDSE authentication failed (HTTP ${response.status})`)
-  const data = await response.json()
-  if (typeof data.access_token !== 'string' || !Number.isFinite(Number(data.expires_in))) throw new Error('CDSE returned an invalid token')
+  const response = await fetchProvider(tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(10000) }, 'auth')
+  if (!response.ok) throw await providerError(response, 'auth')
+  let data
+  try { data = await response.json() } catch { throw new CdseError('auth', response.status, 'неверный формат ответа авторизации') }
+  if (typeof data.access_token !== 'string' || !Number.isFinite(Number(data.expires_in))) throw new CdseError('auth', response.status, 'ответ не содержит действительный токен')
   cachedToken = data.access_token
   tokenExpiresAt = Date.now() + Math.max(0, Number(data.expires_in) - 60) * 1000
   return cachedToken
@@ -27,7 +64,7 @@ async function getToken() {
 export const cdseEvalscript = `//VERSION=3
 function setup() {
   return {
-    input: [{ bands: ["B02", "B04", "B08", "B11", "SCL", "dataMask"], units: "REFLECTANCE" }],
+    input: [{ bands: ["B02", "B04", "B08", "B11", "SCL", "dataMask"] }],
     output: [
       { id: "ndvi", bands: 1, sampleType: "FLOAT32" },
       { id: "evi", bands: 1, sampleType: "FLOAT32" },
@@ -107,13 +144,15 @@ export function extractMeasurements(response) {
 export async function fetchCdseMeasurements(boundary, now = new Date()) {
   if (!isCdseConfigured()) throw new Error('CDSE_CLIENT_ID и CDSE_CLIENT_SECRET не заданы на сервере')
   const token = await getToken()
-  const response = await fetch(statisticsUrl, {
+  const response = await fetchProvider(statisticsUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(makeStatisticsRequest(boundary, now)),
     signal: AbortSignal.timeout(20000),
-  })
+  }, 'statistics')
   if (response.status === 401) { cachedToken = null; tokenExpiresAt = 0 }
-  if (!response.ok) throw new Error(`CDSE Statistical API returned HTTP ${response.status}`)
-  return extractMeasurements(await response.json())
+  if (!response.ok) throw await providerError(response, 'statistics')
+  let payload
+  try { payload = await response.json() } catch { throw new CdseError('statistics', response.status, 'неверный формат ответа со статистикой') }
+  try { return extractMeasurements(payload) } catch { throw new CdseError('statistics', response.status, 'ответ не содержит ожидаемую статистику индексов') }
 }

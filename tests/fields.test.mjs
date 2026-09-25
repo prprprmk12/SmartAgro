@@ -16,10 +16,13 @@ let requestedCoordinates = ''
 let cdseCalls = 0
 let cdseGeometry = null
 let cdseEvalscript = ''
+let failCdseToken = true
+let failCdseStatistics = false
 const weatherServer = createHttpServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   if (url.pathname === '/token') {
     res.setHeader('Content-Type', 'application/json')
+    if (failCdseToken) { res.writeHead(401).end(JSON.stringify({ error: 'invalid_client', error_description: 'client_secret=mock-secret rejected' })); return }
     res.end(JSON.stringify({ access_token: 'mock-cdse-token', expires_in: 3600 }))
     return
   }
@@ -31,6 +34,7 @@ const weatherServer = createHttpServer((req, res) => {
       const data = JSON.parse(Buffer.concat(chunks).toString())
       cdseGeometry = data.input.bounds.geometry
       cdseEvalscript = data.aggregation.evalscript
+      if (failCdseStatistics) { res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: 'Invalid bounds or resolution' } })); return }
       const stats = (mean, noDataCount = 20) => ({ bands: { B0: { stats: { mean, sampleCount: 100, noDataCount } } } })
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ data: [{ interval: { from: new Date().toISOString() }, outputs: { ndvi: stats(0.61), evi: stats(0.34), ndwi: stats(0.19) } }] }))
@@ -160,6 +164,14 @@ test('fields and weather stay isolated by company, including saved forecast fall
     assert.equal(cdseField.status, 201)
     const cdsePath = `/api/fields/${cdseField.data.id}/indices`
     assert.equal((await request(`${cdsePath}/sync`, 'POST', second.token)).status, 404)
+    const authFailure = await request(`${cdsePath}/sync`, 'POST', first.token)
+    assert.equal(authFailure.status, 502)
+    assert.equal(authFailure.data.stage, 'auth')
+    assert.equal(authFailure.data.cdseStatus, 401)
+    assert.match(authFailure.data.error, /авторизоваться.*CDSE/i)
+    assert.doesNotMatch(JSON.stringify(authFailure.data), /mock-secret/)
+    assert.equal(cdseCalls, 0)
+    failCdseToken = false
     const synced = await request(`${cdsePath}/sync`, 'POST', first.token)
     assert.equal(synced.status, 200)
     assert.equal(synced.data.imported, 3)
@@ -178,8 +190,15 @@ test('fields and weather stay isolated by company, including saved forecast fall
     const cdseUpdated = await request(`/api/fields/${cdseField.data.id}`, 'PUT', first.token, { ...field, name: 'CDSE field', coordinates: [51.406, 71.506], boundary: [[51.401, 71.501], [51.401, 71.511], [51.411, 71.511], [51.411, 71.501]] })
     assert.equal(cdseUpdated.status, 200)
     assert.equal((await request(`${cdsePath}?index=ndvi&period=7d`, 'GET', first.token)).data.latest, null)
+    failCdseStatistics = true
+    const statsFailure = await request(`${cdsePath}/sync`, 'POST', first.token)
+    assert.equal(statsFailure.status, 502)
+    assert.equal(statsFailure.data.stage, 'statistics')
+    assert.equal(statsFailure.data.cdseStatus, 400)
+    assert.match(statsFailure.data.error, /Invalid bounds or resolution/)
+    failCdseStatistics = false
     assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 200)
-    assert.equal(cdseCalls, 2)
+    assert.equal(cdseCalls, 3)
     const forecast = await request(`/api/weather?field_id=${created.data.id}`, 'GET', first.token)
     assert.equal(forecast.status, 200)
     assert.equal(forecast.data.days.length, 7)
