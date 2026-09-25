@@ -16,16 +16,18 @@
     "node": ">=20.19.0"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.22",
     "@vitejs/plugin-react": "latest",
     "concurrently": "latest",
     "cors": "latest",
     "dotenv": "latest",
     "express": "latest",
+    "leaflet": "^1.9.4",
     "mongodb": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
