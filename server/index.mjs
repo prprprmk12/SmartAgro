@@ -1,7 +1,8 @@
 import 'dotenv/config'
 import crypto from 'node:crypto'
 import express from 'express'
-import { MongoClient, ObjectId } from 'mongodb'
+import { ObjectId } from './object-id.mjs'
+import { makePostgresPool, initializePostgres, createPostgresDatabase } from './postgres.mjs'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,14 +17,12 @@ const distPath = join(__dirname, '..', 'dist')
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb://localhost:27017/'
+const postgresUrl = process.env.DATABASE_URL
 const isProduction = process.env.NODE_ENV === 'production'
-const databaseName = process.env.MONGODB_DB || 'smartagro'
 const supportedRegion = 'Акмолинская область'
 const openAiApiKey = process.env.OPENAI_API_KEY
 const openAiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini'
-let client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5000 })
-let databaseMode = 'mongodb'
+let databaseMode = 'postgresql'
 const fallbackAkmolaBoundary = [[50.45, 68.25], [52.25, 68.25], [52.25, 73.55], [50.45, 73.55]]
 let akmolaBoundaryPromise
 
@@ -255,21 +254,27 @@ async function seedDatabase(db) {
 }
 
 async function ensureDatabaseConnection() {
-  try {
-    await client.connect()
-    return client.db(databaseName)
-  } catch (error) {
-    if (isProduction) throw error
-    console.warn('MongoDB main connection failed, using in-memory fallback:', error.message)
+  if (!postgresUrl && !isProduction) {
     databaseMode = 'in-memory'
-    const fallbackDb = createMemoryDb()
-    return fallbackDb
+    return createMemoryDb()
+  }
+  const pool = makePostgresPool(postgresUrl)
+  try {
+    await pool.query('SELECT 1')
+    await initializePostgres(pool)
+    return createPostgresDatabase(pool)
+  } catch (error) {
+    await pool.end()
+    if (isProduction) throw error
+    console.warn('PostgreSQL connection failed, using in-memory fallback:', error.message)
+    databaseMode = 'in-memory'
+    return createMemoryDb()
   }
 }
 
 async function start() {
-  if (isProduction && !process.env.MONGODB_URI && !process.env.MONGO_URL) {
-    throw new Error('Set MONGODB_URI or MONGO_URL before starting in production')
+  if (isProduction && !postgresUrl) {
+    throw new Error('Set DATABASE_URL before starting in production')
   }
   if (isProduction && !existsSync(join(distPath, 'index.html'))) {
     throw new Error('Frontend build not found: run npm run build before starting in production')
@@ -851,4 +856,4 @@ async function start() {
   app.listen(port, '0.0.0.0', () => console.log(`SmartAgro listening on port ${port}`))
 }
 
-start().catch((error) => { console.error('MongoDB connection failed:', error); process.exit(1) })
+start().catch((error) => { console.error('Database startup failed:', error); process.exit(1) })
