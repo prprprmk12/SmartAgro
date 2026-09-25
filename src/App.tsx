@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 
 type FieldRecord = {
+  id?: string
   name: string
   crop: string
   sowingDate: string
@@ -55,6 +56,20 @@ function getStoredUser(): UserRecord | null {
   } catch {
     return null
   }
+}
+
+const isDemoUser = () => getStoredUser()?.id === 'demo-user'
+
+async function fieldRequest(path: string, method = 'GET', data?: FieldRecord | FieldRecord[]) {
+  const token = localStorage.getItem('smartagro-token')
+  const response = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+    ...(data ? { body: JSON.stringify(data) } : {}),
+  })
+  const result = await response.json()
+  if (!response.ok) throw new Error(result.error || 'Не удалось сохранить данные поля')
+  return result
 }
 
 function getInitials(name: string) {
@@ -266,10 +281,13 @@ function clamp(value: number, min: number, max: number) {
 
 function App() {
   const [selectedCompany, setSelectedCompany] = useState(getStoredCompany)
-  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('smartagro-authenticated') === 'true')
-  const [fieldRecords, setFieldRecords] = useState<FieldRecord[]>(() => getStoredFields(getCompanyStorageKey()))
+  const [authenticated, setAuthenticated] = useState(() => !!localStorage.getItem('smartagro-token') || (localStorage.getItem('smartagro-authenticated') === 'true' && isDemoUser()))
+  const [fieldRecords, setFieldRecords] = useState<FieldRecord[]>(() => isDemoUser() ? getStoredFields(getCompanyStorageKey()) : [])
   const [selectedFieldName, setSelectedFieldName] = useState<string>(() => getStoredFields(getCompanyStorageKey())[0]?.name || 'Поле 01')
-  const [onboardingDone, setOnboardingDone] = useState(() => getStoredFields(getCompanyStorageKey()).length > 0)
+  const [onboardingDone, setOnboardingDone] = useState(() => isDemoUser() && getStoredFields(getCompanyStorageKey()).length > 0)
+  const [fieldsLoading, setFieldsLoading] = useState(() => !!localStorage.getItem('smartagro-token'))
+  const [fieldsError, setFieldsError] = useState('')
+  const [saveError, setSaveError] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [active, setActive] = useState('Обзор')
   const [layer, setLayer] = useState('NDVI')
@@ -299,8 +317,27 @@ function App() {
 
   const persistFields = (nextFields: FieldRecord[]) => {
     setFieldRecords(nextFields)
-    localStorage.setItem(getCompanyStorageKey(selectedCompany.id, selectedCompany.name), JSON.stringify(nextFields))
+    if (isDemoUser()) localStorage.setItem(getCompanyStorageKey(selectedCompany.id, selectedCompany.name), JSON.stringify(nextFields))
   }
+
+  const loadFields = async () => {
+    setFieldsLoading(true)
+    setFieldsError('')
+    try {
+      const items = await fieldRequest('/api/fields') as FieldRecord[]
+      setFieldRecords(items)
+      setSelectedFieldName(items[0]?.name || '')
+      setOnboardingDone(items.length > 0)
+    } catch (error) {
+      setFieldsError(error instanceof Error ? error.message : 'Не удалось загрузить поля')
+    } finally {
+      setFieldsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (authenticated && !isDemoUser()) void loadFields()
+  }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
 
@@ -356,13 +393,16 @@ function App() {
   }, [chartPeriod, selectedField, weatherItems])
   const chartValues = fieldAnalytics.chart
 
-  const authenticate = (user: UserRecord) => {
+  const authenticate = (user: UserRecord, token?: string) => {
     localStorage.setItem('smartagro-authenticated', 'true')
     localStorage.setItem('smartagro-user', JSON.stringify(user))
-    const companyFields = getStoredFields(getCompanyStorageKey(user.companyId, selectedCompany.name))
+    if (token) localStorage.setItem('smartagro-token', token)
+    else localStorage.removeItem('smartagro-token')
+    const companyFields = token ? [] : getStoredFields(getCompanyStorageKey(user.companyId, selectedCompany.name))
     setFieldRecords(companyFields)
     setSelectedFieldName(companyFields[0]?.name || 'Поле 01')
     setOnboardingDone(companyFields.length > 0)
+    setFieldsLoading(!!token)
     setAgronomistName(user.name)
     setAuthenticated(true)
   }
@@ -391,7 +431,7 @@ function App() {
     setEditingFieldName(null)
   }
 
-  const saveField = (nextField: FieldRecord) => {
+  const saveField = async (nextField: FieldRecord) => {
     const normalizedName = nextField.name.trim()
     if (!normalizedName) return
     const duplicate = fieldRecords.some((field) => field.name === normalizedName && field.name !== editingFieldName)
@@ -416,6 +456,14 @@ function App() {
       yieldForecastT: Number(nextField.yieldForecastT || nextField.yieldPerHa || 0),
     }
 
+    if (!isDemoUser()) {
+      const saved = await fieldRequest(editingFieldName && nextField.id ? `/api/fields/${nextField.id}` : '/api/fields', editingFieldName ? 'PUT' : 'POST', normalized) as FieldRecord
+      const nextFields = editingFieldName ? fieldRecords.map((field) => field.name === editingFieldName ? saved : field) : [...fieldRecords, saved]
+      setFieldRecords(nextFields)
+      setSelectedFieldName(saved.name)
+      closeFieldEditor()
+      return
+    }
     let nextFields: FieldRecord[]
     if (editingFieldName) {
       nextFields = fieldRecords.map((field) => (field.name === editingFieldName ? { ...field, ...normalized } : field))
@@ -426,6 +474,17 @@ function App() {
     persistFields(nextFields)
     setSelectedFieldName(normalized.name)
     closeFieldEditor()
+  }
+
+  const savePrice = async (field: FieldRecord) => {
+    if (isDemoUser()) return
+    try {
+      const saved = await fieldRequest(`/api/fields/${field.id}`, 'PUT', field) as FieldRecord
+      setFieldRecords((current) => current.map((item) => item.id === saved.id ? saved : item))
+      setSaveError('')
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Не удалось сохранить цену')
+    }
   }
 
   const refreshWeather = async () => {
@@ -474,13 +533,17 @@ function App() {
     return <AuthScreen mode={authMode} setMode={setAuthMode} onAuthenticated={authenticate} onCompanySelected={selectCompany} />
   }
 
+  if (fieldsLoading || fieldsError) {
+    return <div className="setup-shell"><div className="setup-content"><div className="setup-copy"><h1>{fieldsLoading ? 'Загружаем поля…' : 'Не удалось загрузить поля'}</h1><p>{fieldsError}</p>{fieldsError && <><button className="outline-button" onClick={() => void loadFields()}>Повторить</button><button className="outline-button" onClick={() => { localStorage.removeItem('smartagro-token'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-authenticated'); setAuthenticated(false) }}>Войти снова</button></>}</div></div></div>
+  }
+
   if (!onboardingDone) {
     return (
       <FieldSetupScreen
         company={selectedCompany}
         userLocation={userLocation}
-        onComplete={(fields) => {
-          const nextFields = fields
+        onComplete={async (fields) => {
+          const nextFields = isDemoUser() ? fields : await fieldRequest('/api/fields/bulk', 'POST', fields) as FieldRecord[]
           const updatedCompany = { ...selectedCompany, fields: nextFields.map((field) => field.name) }
           selectCompany(updatedCompany)
           persistFields(nextFields)
@@ -544,6 +607,7 @@ function App() {
         </header>
 
         <div className="content-wrap">
+          {saveError && <div className="location-notice"><b>{saveError}</b><button className="text-button" onClick={() => setSaveError('')}>Закрыть</button></div>}
           <section className="page-heading">
             <div>
               <p className="eyebrow">{formatToday()}</p>
@@ -689,8 +753,8 @@ function App() {
             </div>
             <div className="economy-controls">
               <div className="economy-readonly"><span>Урожайность и прогноз</span><strong>{selectedField.yieldForecastT.toFixed(2)} т/га</strong><small>Источник урожайности подключается отдельно</small></div>
-              <label className="economy-price">Топливо, ₸/л<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, fuelPricePerL: Number(event.target.value) } : field))} /></label>
-              <label className="economy-price">Цена, ₸/т<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, grainPricePerT: Number(event.target.value) } : field))} /></label>
+              <label className="economy-price">Топливо, ₸/л<input type="number" min="0" step="1" value={selectedField.fuelPricePerL} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, fuelPricePerL: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
+              <label className="economy-price">Цена, ₸/т<input type="number" min="0" step="1000" value={selectedField.grainPricePerT} onChange={(event) => persistFields(fieldRecords.map((field) => field.name === selectedField.name ? { ...field, grainPricePerT: Number(event.target.value) } : field))} onBlur={() => void savePrice(selectedField)} /></label>
             </div>
             <div className="economy-result">
               <small>Ожидаемая прибыль</small>
@@ -706,7 +770,7 @@ function App() {
       </main>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
-      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); setProfileOpen(false); setAuthenticated(false) }} />}
+      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); localStorage.removeItem('smartagro-token'); setProfileOpen(false); setAuthenticated(false) }} />}
       {reportOpen && <ReportPanel company={selectedCompany.name} fields={fieldRecords.map((field) => field.name)} onClose={() => setReportOpen(false)} />}
       {riskOpen && <RiskDetails field={selectedField} analytics={fieldAnalytics} onClose={() => setRiskOpen(false)} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
@@ -958,7 +1022,7 @@ function YandexFieldMap({ fields, customFields, selectedField, userLocation, fie
   return <div ref={mapRef} className="real-map">{!loaded && <div className="map-loading">Загрузка карты полей…</div>}</div>
 }
 
-function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (field: FieldRecord) => void }) {
+function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: FieldRecord; existingFields: FieldRecord[]; onClose: () => void; onSave: (field: FieldRecord) => Promise<void> }) {
   const [draft, setDraft] = useState<FieldRecord>(field || {
     name: `Поле ${existingFields.length + 1}`,
     crop: 'Пшеница',
@@ -1084,7 +1148,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
     return () => window.removeEventListener('smartagro-map-pick', handleMapPick)
   }, [])
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const latitude = draft.coordinates?.[0]
     const longitude = draft.coordinates?.[1]
     if (!draft.name.trim()) {
@@ -1109,7 +1173,8 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
       setError('Укажите название культуры')
       return
     }
-    onSave({
+    try {
+      await onSave({
       ...draft,
       crop,
       name: draft.name.trim(),
@@ -1132,7 +1197,10 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
       boundary: draft.boundary && draft.boundary.length >= 3 ? draft.boundary : undefined,
       fieldPhotos: draft.fieldPhotos ?? [],
       photoAnalysis: draft.photoAnalysis,
-    })
+      })
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить поле')
+    }
   }
 
   return (
@@ -1206,7 +1274,7 @@ function Risk({ label, score, status, width, color }: { label: string; score: st
   return <div className="risk-row"><div className="risk-label"><b>{label}</b><span className={`risk-status ${color}`}>{status}</span><strong>{score}<small>/100</small></strong></div><div className="risk-track"><span className={color} style={{ width }} /></div></div>
 }
 
-function FieldSetupScreen({ company, userLocation, onComplete }: { company: Company; userLocation: { lat: number; lon: number } | null; onComplete: (fields: FieldRecord[]) => void }) {
+function FieldSetupScreen({ company, userLocation, onComplete: completeFields }: { company: Company; userLocation: { lat: number; lon: number } | null; onComplete: (fields: FieldRecord[]) => Promise<void> }) {
   const [fields, setFields] = useState<FieldRecord[]>([])
   const [name, setName] = useState('')
   const [crop, setCrop] = useState('Пшеница')
@@ -1216,6 +1284,19 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
   const [selectedPoint, setSelectedPoint] = useState<[number, number] | null>(null)
   const [selectedBoundary, setSelectedBoundary] = useState<[number, number][] | null>(null)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const onComplete = async (fieldsToSave: FieldRecord[]) => {
+    if (saving) return
+    setSaving(true)
+    setError('')
+    try {
+      await completeFields(fieldsToSave)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить поля')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     const handleMapPick = (event: Event) => {
@@ -1277,7 +1358,7 @@ function FieldSetupScreen({ company, userLocation, onComplete }: { company: Comp
   return <div className="setup-shell"><div className="setup-top"><div className="auth-brand"><span className="brand-mark">✦</span> smart<span>agro</span></div><span className="setup-step">ШАГ 1 ИЗ 1 · НАСТРОЙКА ХОЗЯЙСТВА</span></div><div className="setup-content"><div className="setup-copy"><p className="eyebrow green-text">ТОО НАЙДЕНО</p><h1>Подключим поля<br /><em>к рабочему столу</em></h1><p>ТОО «{company.name.replace('ТОО «', '').replace('»', '')}» найдено в {company.region}. Добавьте поля, чтобы SmartAgro считал урожайность, погоду и экономику именно вашего хозяйства.</p><div className="company-found"><span className="company-badge">⌂</span><div><b>{company.name}</b><small>{company.location} · {userLocation ? 'местоположение подтверждено' : 'определяем местоположение'}</small></div><i>Найдено</i></div><div className="setup-form"><label>Номер или название поля<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, Поле 12" /></label><label>Что посадили<select value={crop} onChange={(event) => setCrop(event.target.value)}><option>Пшеница</option><option>Ячмень</option><option>Лен</option><option>Рапс</option><option>Другая культура</option></select></label><label>Когда сеяли<input type="date" value={sowingDate} onChange={(event) => setSowingDate(event.target.value)} /></label><button className="setup-add" onClick={addField}>＋ Добавить поле</button>{error && <small className="setup-error">{error}</small>}</div><div className="setup-fields">{fields.length === 0 ? <span className="setup-empty">Добавьте первое поле, чтобы продолжить</span> : fields.map((field, index) => <div className="setup-field-row" key={`${field.name}-${index}`}><span className="field-health healthy" /><div><b>{field.name}</b><small>{field.crop} · сев {field.sowingDate}</small></div><button onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}>×</button></div>)}</div><button className="setup-finish" disabled={!fields.length} onClick={() => onComplete(fields)}>Сохранить поля и открыть рабочий стол</button></div><div className="setup-map"><div className="setup-map-stage"><YandexFieldMap fields={fields.map((field) => field.name)} customFields={[]} userLocation={userLocation} fieldPoints={fields.map((field) => field.coordinates)} fieldAreas={fields.map((field) => field.areaHa)} /><div className="setup-map-note" /></div></div></div></div>
 }
 
-function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord) => void; onCompanySelected: (company: Company) => void }) {
+function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mode: 'login' | 'register'; setMode: (mode: 'login' | 'register') => void; onAuthenticated: (user: UserRecord, token?: string) => void; onCompanySelected: (company: Company) => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [company, setCompany] = useState(demoCompanies[0].name)
@@ -1350,7 +1431,7 @@ function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: { mod
       } else if (isRegister && companyMode === 'new') {
         onCompanySelected({ id: result.companyId, name: companyName.trim(), region, location: companyLocation.trim(), fields: [] })
       }
-      onAuthenticated(authenticatedUser)
+      onAuthenticated(authenticatedUser, result.token)
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Сервер MongoDB недоступен')
     } finally { setLoading(false) }
