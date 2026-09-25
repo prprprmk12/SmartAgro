@@ -5,6 +5,7 @@ import { MongoClient, ObjectId } from 'mongodb'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { fetchWeather } from './weather.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -171,10 +172,10 @@ async function getAkmolaBoundary() {
 
 async function fallbackAiAnswer(message) {
   if (!isAgriculturalQuestion(message)) return 'Я помогаю только с работой хозяйства: поля, урожайность, погода, риски, сроки работ и экономика. Сформулируйте вопрос в этой области.'
-  if (/урожа|прогноз|сколько/i.test(message)) return 'По текущему demo-сценарию базовый прогноз составляет 2.84 т/га, доверительный интервал 2.52–3.08 т/га. На результат сильнее всего влияют динамика NDVI, запас влаги и погодное окно уборки.'
-  if (/погод|дожд|осадк|уборк/i.test(message)) return 'В ближайшие 3 дня в demo-сценарии ожидается сухое окно без существенных осадков. Это подходит для подготовки техники и планирования уборки на 20–23 сентября.'
-  if (/затрат|расход|марж|доход|цен|топлив/i.test(message)) return 'Изменение стоимости топлива влияет на маржу поля. Введите актуальную цену топлива в блоке «Экономика», чтобы сравнить сценарии.'
-  return 'Для текущего поля риск засухи низкий, риск суховея умеренный. Рекомендую проверить юго-восточную зону и сопоставить NDVI с запасом влаги перед решением о работах.'
+  if (/урожа|прогноз|сколько/i.test(message)) return 'Проверенного прогноза урожайности пока нет: модель и исторические данные поля не подключены. Фактический сбор и расходы можно посмотреть в карточке поля.'
+  if (/погод|дожд|осадк|уборк/i.test(message)) return 'Прогноз по координатам выбранного поля находится в блоке «Погода». Проверяйте дату его получения: точные сроки работ без расчёта календаря рекомендовать нельзя.'
+  if (/затрат|расход|марж|доход|цен|топлив/i.test(message)) return 'Расходы введены агрономом. Ожидаемую маржу нельзя рассчитать без прогноза урожайности; значения расходов смотрите в блоке «Экономика».'
+  return 'Для оценки состояния поля пока недостаточно измерений NDVI/NDWI и проверенной модели риска. Проверьте данные поля и дождитесь подключения источника индексов.'
 }
 
 async function seedDatabase(db) {
@@ -215,6 +216,8 @@ async function start() {
   const companies = db.collection('companies')
   const fields = db.collection('fields')
   const sessions = db.collection('sessions')
+  const weatherSnapshots = db.collection('weatherSnapshots')
+  const weatherCache = new Map()
   if (fields.createIndex) await fields.createIndex({ companyId: 1, name: 1 }, { unique: true })
   if (sessions.createIndex) await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
   const createSession = async (user) => {
@@ -308,6 +311,33 @@ async function start() {
     res.json(publicField({ ...existing, ...data, updatedAt: new Date() }))
   })
 
+  app.get('/api/weather', requireUser, async (req, res) => {
+    const fieldId = req.query.field_id
+    if (typeof fieldId !== 'string' || !ObjectId.isValid(fieldId)) return res.status(400).json({ error: 'Укажите корректный field_id' })
+    const field = await fields.findOne({ _id: new ObjectId(fieldId), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    if (!Array.isArray(field.coordinates) || field.coordinates.length !== 2 || !field.coordinates.every(Number.isFinite)) return res.status(422).json({ error: 'У поля нет координат для прогноза погоды' })
+    const key = fieldId
+    const sameCoordinates = (forecast) => forecast?.coordinates?.[0] === field.coordinates[0] && forecast?.coordinates?.[1] === field.coordinates[1]
+    const cached = weatherCache.get(key)
+    if (req.query.refresh !== '1' && sameCoordinates(cached) && Date.now() - Date.parse(cached.fetchedAt) < 15 * 60_000) return res.json({ ...cached, status: 'current' })
+    try {
+      const forecast = await fetchWeather(field.coordinates)
+      weatherCache.set(key, forecast)
+      const saved = await weatherSnapshots.findOne({ fieldId: field._id, companyId: req.user.companyId })
+      if (saved) await weatherSnapshots.updateMany({ _id: saved._id }, { $set: { forecast } })
+      else await weatherSnapshots.insertOne({ fieldId: field._id, companyId: req.user.companyId, forecast })
+      return res.json({ ...forecast, status: 'current' })
+    } catch (error) {
+      console.error('Weather request failed:', error.message)
+      const saved = await weatherSnapshots.findOne({ fieldId: field._id, companyId: req.user.companyId })
+      const fallback = sameCoordinates(cached) ? cached : saved?.forecast
+      const today = new Date().toISOString().slice(0, 10)
+      if (sameCoordinates(fallback) && fallback.days.some((day) => day.date >= today)) return res.json({ ...fallback, status: 'stale', days: fallback.days.filter((day) => day.date >= today) })
+      return res.status(503).json({ error: 'Прогноз погоды недоступен. Сохранённого актуального прогноза нет.' })
+    }
+  })
+
   app.post('/api/auth/register', async (req, res) => {
     const { name, email, password, companyId, companyName, companyBin, companyLocation, region } = req.body
     if (!name || !email || !password || !region) return res.status(400).json({ error: 'Заполните имя, email, пароль и область' })
@@ -388,26 +418,29 @@ async function start() {
     }
   })
 
-  app.post('/api/ai/chat', async (req, res) => {
+  app.post('/api/ai/chat', requireUser, async (req, res) => {
     const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
-    const field = req.body?.field
-    const analysisHistory = Array.isArray(req.body?.analysisHistory) ? req.body.analysisHistory.slice(-5) : []
     if (!message) return res.status(400).json({ error: 'Введите вопрос' })
+    if (!ObjectId.isValid(req.body?.field?.id)) return res.status(400).json({ error: 'Укажите поле' })
+    const field = await fields.findOne({ _id: new ObjectId(req.body.field.id), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
     if (!isAgriculturalQuestion(message)) return res.json({ answer: await fallbackAiAnswer(message), source: 'topic-guard', confidence: 1 })
-    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message), source: 'demo-fallback', confidence: 0.65 })
+    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message), source: 'rule-based', confidence: 0, limitations: ['Нет расчётной модели прогноза и измерений индексов'] })
 
-    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
-    const context = { region: supportedRegion, field: field || { name: 'текущее поле', crop: 'пшеница' }, analysisHistory, ndvi: 0.68, ndwi: 0.42, yieldForecast: '2.84 т/га', yieldInterval: '2.52–3.08 т/га', droughtRisk: 28, dryWindRisk: 41, harvestWindow: '20–23 сентября', weather: 'сухое окно без существенных осадков в ближайшие 3 дня' }
+    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и даты: прогноз урожая, индексы и индексы риска не подключены. Погоду упоминай только если она передана в контексте с датой. Не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
+    const snapshot = await weatherSnapshots.findOne({ fieldId: field._id, companyId: req.user.companyId })
+    const weather = snapshot?.forecast?.days?.some((day) => day.date >= new Date().toISOString().slice(0, 10)) ? snapshot.forecast : null
+    const context = { region: supportedRegion, field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, updatedAt: field.updatedAt, collectedT: field.harvestTotalT, costs: { fuel: field.fuelUsedL * field.fuelPricePerL, seed: field.seedCost, irrigation: field.irrigationCost, treatment: field.treatmentCost, fertilizer: field.fertilizerCost, machinery: field.machineryCost, storage: field.storageCost, other: field.otherCost } }, weather, ndvi: null, ndwi: null, yieldForecast: null, risks: null }
     try {
       const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiApiKey}` }, body: JSON.stringify({ model: openAiModel, temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Контекст поля: ${JSON.stringify(context)}\nВопрос агронома: ${message}` }] }) })
       const payload = await openAiResponse.json()
       if (!openAiResponse.ok) throw new Error(payload?.error?.message || 'OpenAI request failed')
       const answer = payload.choices?.[0]?.message?.content?.trim()
       if (!answer) throw new Error('Empty OpenAI response')
-      res.json({ answer, source: 'openai', confidence: 0.8 })
+      res.json({ answer, source: 'openai', limitations: ['Индексы и прогноз урожайности не подключены'] })
     } catch (error) {
       console.error('AI request failed:', error.message)
-      res.json({ answer: await fallbackAiAnswer(message), source: 'demo-fallback', confidence: 0.65, warning: 'OpenAI временно недоступен' })
+      res.json({ answer: await fallbackAiAnswer(message), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
     }
   })
 
