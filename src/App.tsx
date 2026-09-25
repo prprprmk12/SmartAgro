@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import YandexFieldMap from './FieldMap'
 
 type FieldRecord = {
   id?: string
@@ -630,14 +631,14 @@ function App() {
           <section className="hero-grid" id="fields-map">
             <div className="map-card panel">
               <div className="panel-header">
-                <div><h2>Состояние полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · Яндекс.Карты</p></div>
+                <div><h2>Состояние полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · OpenStreetMap</p></div>
                 <div className="map-actions">
                   <button className="small-icon" title="Информация и история поля" onClick={() => setFieldInfoOpen(true)}>i</button>
                   <button className="small-icon" onClick={() => openFieldEditor(selectedField.name)}>✎</button>
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} />
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} onSelectField={setSelectedFieldName} />
                 <div className="layer-switcher">{['NDVI', 'NDWI', 'Истинный цвет'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
             </div>
@@ -784,7 +785,7 @@ function SettingsPanel({ onClose, onSave }: { onClose: () => void; onSave: () =>
   const [notifications, setNotifications] = useState(() => localStorage.getItem('smartagro-notifications') !== 'false')
   const [units, setUnits] = useState(() => localStorage.getItem('smartagro-units') || 'Метрические')
   const saveSettings = () => { localStorage.setItem('smartagro-notifications', String(notifications)); localStorage.setItem('smartagro-units', units); onSave() }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">НАСТРОЙКИ</p><h2>Рабочая среда</h2><p>Настройте уведомления и формат данных для dashboard.</p><label className="setting-row"><span><b>Уведомления о рисках</b><small>Засуха, суховей, снег и погодные окна</small></span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><label className="form-label">Единицы измерения<select className="form-input" value={units} onChange={(event) => setUnits(event.target.value)}><option>Метрические</option><option>Имперские</option></select></label><div className="settings-source"><span className="status-dot" /><div><b>Источники подключены</b><small>MongoDB · Open-Meteo · Яндекс.Карты</small></div></div><button className="dark-button" onClick={saveSettings}>Сохранить настройки <span>✓</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">НАСТРОЙКИ</p><h2>Рабочая среда</h2><p>Настройте уведомления и формат данных для dashboard.</p><label className="setting-row"><span><b>Уведомления о рисках</b><small>Засуха, суховей, снег и погодные окна</small></span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><label className="form-label">Единицы измерения<select className="form-input" value={units} onChange={(event) => setUnits(event.target.value)}><option>Метрические</option><option>Имперские</option></select></label><div className="settings-source"><span className="status-dot" /><div><b>Источники подключены</b><small>MongoDB · Open-Meteo · OpenStreetMap</small></div></div><button className="dark-button" onClick={saveSettings}>Сохранить настройки <span>✓</span></button></div></div>
 }
 
 function ProfilePanel({ name, company, onClose, onLogout }: { name: string; company: string; onClose: () => void; onLogout: () => void }) {
@@ -867,7 +868,7 @@ function LocationNotice({ status, onRequest }: { status: 'idle' | 'loading' | 'r
   return <div className="location-notice"><span>⌖</span><div><b>{status === 'loading' ? 'Определяем местоположение…' : 'Уточните местоположение хозяйства'}</b><small>{status === 'denied' ? 'Доступ запрещен. Разрешите геолокацию в браузере и повторите.' : 'Это поможет искать поля рядом с вашим хозяйством точнее.'}</small></div>{status !== 'loading' && <button className="text-button" onClick={onRequest}>Определить →</button>}</div>
 }
 
-function YandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
+function LegacyYandexFieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false }: { fields: string[]; customFields: string[]; selectedField?: string; userLocation: { lat: number; lon: number } | null; fieldPoints?: Array<[number, number] | undefined>; fieldAreas?: number[]; fieldBoundaries?: Array<[number, number][] | undefined>; selectionZones?: FieldRecord[]; allowOnlyZones?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<any>(null)
   const [loaded, setLoaded] = useState(false)
