@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import type { IndexMeasurement } from './indices'
 
 type Point = [number, number]
 type MapField = { name: string; crop: string; coordinates?: Point; boundary?: Point[] }
@@ -15,6 +16,7 @@ type Props = {
   selectionZones?: MapField[]
   allowOnlyZones?: boolean
   layer?: string
+  indexObservation?: IndexMeasurement | null
   onSelectField?: (name: string) => void
 }
 
@@ -38,22 +40,27 @@ function square(center: Point, areaHa: number): Point[] {
   return [[center[0] - lat, center[1] - lon], [center[0] - lat, center[1] + lon], [center[0] + lat, center[1] + lon], [center[0] + lat, center[1] - lon]]
 }
 
-function popup(field: MapField, approximate: boolean) {
+function popup(field: MapField, approximate: boolean, observation?: IndexMeasurement | null) {
   const content = document.createElement('div')
   const title = document.createElement('strong')
   title.textContent = field.name
   const description = document.createElement('p')
   description.textContent = `${field.crop}${approximate ? ' · приблизительное положение, граница не загружена' : ''}`
   content.append(title, description)
+  if (observation) {
+    const index = document.createElement('p')
+    index.textContent = `Среднее ${observation.index.toUpperCase()}: ${observation.value.toFixed(3)} · ${observation.date} · ${observation.source}. ${observation.origin === 'cdse' ? 'Рассчитано CDSE по контуру поля' : 'Загружено пользователем, источник не проверен'}.`
+    content.append(index)
+  }
   return content
 }
 
-export default function FieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer, onSelectField }: Props) {
+export default function FieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer, indexObservation, onSelectField }: Props) {
   const element = useRef<HTMLDivElement>(null)
   const [tileError, setTileError] = useState(false)
   const [ready, setReady] = useState(false)
   const selectionMode = allowOnlyZones || selectedField === undefined
-  const dataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones })
+  const dataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones, layer, indexObservation })
   const selectRef = useRef(onSelectField)
   selectRef.current = onSelectField
 
@@ -106,12 +113,14 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
       if (!exact && !field.coordinates) continue
       const position = field.coordinates ?? field.boundary![0]
       const outline = exact ? field.boundary! : square(position, field.areaHa)
+      const observation = active && layer !== 'Базовая карта' ? indexObservation : null
+      const fillColor = observation && exact ? { ndvi: '#3d9860', evi: '#308b85', ndwi: '#367fb0' }[observation.index] : active ? '#308d55' : '#93aa65'
       const polygon = L.polygon(outline, {
         color: active ? '#ffffff' : '#dcebb0', weight: active ? 4 : 2,
-        fillColor: active ? '#308d55' : '#93aa65', fillOpacity: exact ? 0.5 : 0.18,
+        fillColor, fillOpacity: exact ? 0.5 : 0.18,
         dashArray: exact ? undefined : '6 4', interactive: !selectionMode,
       }).addTo(map)
-      polygon.bindPopup(popup(field, !exact))
+      polygon.bindPopup(popup(field, !exact, observation))
       polygon.on('click', () => selectRef.current?.(field.name))
       const center = polygon.getBounds().getCenter()
       L.marker(center, { icon: L.divIcon({ className: 'smartagro-field-label', html: `<span>${field.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</span>`, iconSize: [90, 24], iconAnchor: [45, 12] }), interactive: !selectionMode })
@@ -173,5 +182,5 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     return () => { abort.abort(); clearTimeout(resize); if (clickTimer) clearTimeout(clickTimer); map.remove() }
   }, [dataKey])
 
-  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileError && <div className="map-warning">Не удалось загрузить подложку OpenStreetMap. Проверьте соединение.</div>}{!selectionMode && layer && layer !== 'Истинный цвет' && <div className="map-data-note">Данные {layer} для этого поля пока не подключены</div>}</div>
+  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileError && <div className="map-warning">Не удалось загрузить подложку OpenStreetMap. Проверьте соединение.</div>}{!selectionMode && layer && layer !== 'Базовая карта' && <div className="map-data-note">{indexObservation ? `Среднее ${layer}: ${indexObservation.value.toFixed(3)} · ${indexObservation.date} · ${indexObservation.source} (${indexObservation.origin === 'cdse' ? 'CDSE по контуру' : 'CSV пользователя, источник не проверен'}; не карта зон)` : `Нет данных ${layer} для выбранного периода`}</div>}</div>
 }

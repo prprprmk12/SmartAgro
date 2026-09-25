@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fetchWeather } from './weather.mjs'
+import { fetchCdseMeasurements, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -28,6 +29,7 @@ const matchValue = (left, right) => {
   if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime()
   if (right && typeof right === 'object' && !Array.isArray(right) && '$exists' in right) return (left !== undefined) === right.$exists
   if (right && typeof right === 'object' && !Array.isArray(right) && '$in' in right) return right.$in.some((value) => matchValue(left, value))
+  if (right && typeof right === 'object' && !Array.isArray(right) && '$gte' in right) return left !== undefined && left >= right.$gte
   return left === right
 }
 
@@ -110,6 +112,26 @@ const hashPassword = (password) => crypto.scryptSync(password, 'smartagro-local-
 const publicUser = (user) => ({ id: user._id.toString(), name: user.name, email: user.email, companyId: user.companyId })
 const sessionHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
 const publicField = (field) => ({ ...field, id: field._id.toString(), companyId: field.companyId.toString() })
+const publicTask = (task) => ({
+  id: task._id.toString(), fieldId: task.fieldId.toString(), title: task.title,
+  section: task.section, priority: task.priority, dueDate: task.dueDate,
+  assignee: task.assignee, status: task.status, createdAt: task.createdAt, updatedAt: task.updatedAt,
+})
+const publicIndexMeasurement = (item) => ({ date: item.date, index: item.index, value: item.value, source: item.source, cloudCoverPct: item.cloudCoverPct, validPixelPct: item.validPixelPct ?? null, origin: item.origin === 'cdse' ? 'cdse' : 'user-upload', processingVersion: item.processingVersion ?? null, ingestedAt: item.ingestedAt })
+const supportedIndices = ['ndvi', 'evi', 'ndwi']
+const validTaskDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+const shortText = (value, max, required = false) => typeof value === 'string' && value.trim().length <= max && (!required || value.trim().length > 0)
+
+function normalizeMeasurement(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const index = typeof value.index === 'string' ? value.index.trim().toLowerCase() : ''
+  if (!supportedIndices.includes(index) || !validTaskDate(value.date) || value.date > new Date().toISOString().slice(0, 10) ||
+    typeof value.value !== 'number' || !Number.isFinite(value.value) || value.value < -1 || value.value > 1 ||
+    !shortText(value.source, 120, true) || value.source.trim().toLowerCase() === cdseSource.toLowerCase() ||
+    (value.cloudCoverPct !== undefined && value.cloudCoverPct !== null &&
+      (typeof value.cloudCoverPct !== 'number' || !Number.isFinite(value.cloudCoverPct) || value.cloudCoverPct < 0 || value.cloudCoverPct > 100))) return null
+  return { index, date: value.date, value: value.value, source: value.source.trim(), cloudCoverPct: value.cloudCoverPct ?? null, origin: 'user-upload', validPixelPct: null, processingVersion: null }
+}
 const fieldNumbers = ['areaHa', 'plantedAreaHa', 'fuelUsedL', 'fuelPricePerL', 'grainPricePerT', 'harvestTotalT', 'yieldPerHa', 'yieldForecastT', 'seedCost', 'irrigationCost', 'treatmentCost', 'fertilizerCost', 'machineryCost', 'storageCost', 'otherCost']
 
 function normalizeField(value) {
@@ -153,7 +175,7 @@ const isValidBin = (value) => {
   const first = checksum(firstWeights)
   return (first < 10 ? first : checksum(secondWeights)) === digits[11]
 }
-const agriculturalTopic = /поле|поля|урожа|пшениц|ячмен|се[яе]ть|сев|уборк|погод|дожд|осадк|засух|сухове|мороз|снег|ndvi|ndwi|растени|культур|удобр|обработ|трав|затрат|расход|доход|марж|цен|топлив|агроном|то[оo]|акмолин/i
+const agriculturalTopic = /поле|поля|урожа|пшениц|ячмен|се[яе]ть|сев|уборк|погод|дожд|осадк|засух|сухове|мороз|снег|ndvi|ndwi|evi|индекс|спутник|растени|культур|удобр|обработ|трав|затрат|расход|доход|марж|цен|топлив|агроном|то[оo]|акмолин/i
 const isAgriculturalQuestion = (message) => agriculturalTopic.test(message)
 
 async function getAkmolaBoundary() {
@@ -170,12 +192,13 @@ async function getAkmolaBoundary() {
   return akmolaBoundaryPromise
 }
 
-async function fallbackAiAnswer(message) {
+async function fallbackAiAnswer(message, observations = []) {
   if (!isAgriculturalQuestion(message)) return 'Я помогаю только с работой хозяйства: поля, урожайность, погода, риски, сроки работ и экономика. Сформулируйте вопрос в этой области.'
+  if (/ndvi|ndwi|evi|индекс|спутник/i.test(message)) return observations.length ? `Последние измерения: ${observations.map((item) => `${item.index.toUpperCase()} ${item.value.toFixed(3)} от ${item.date} (${item.source}; ${item.origin === 'cdse' ? 'рассчитано CDSE по контуру' : 'CSV пользователя, источник не проверен'})`).join('; ')}. По среднему значению нельзя оценить отдельные зоны поля.` : 'Для этого поля нет измерений NDVI/NDWI/EVI за последние 90 дней. Обновите данные из CDSE или загрузите CSV с датой и происхождением показателей.'
   if (/урожа|прогноз|сколько/i.test(message)) return 'Проверенного прогноза урожайности пока нет: модель и исторические данные поля не подключены. Фактический сбор и расходы можно посмотреть в карточке поля.'
   if (/погод|дожд|осадк|уборк/i.test(message)) return 'Прогноз по координатам выбранного поля находится в блоке «Погода». Проверяйте дату его получения: точные сроки работ без расчёта календаря рекомендовать нельзя.'
   if (/затрат|расход|марж|доход|цен|топлив/i.test(message)) return 'Расходы введены агрономом. Ожидаемую маржу нельзя рассчитать без прогноза урожайности; значения расходов смотрите в блоке «Экономика».'
-  return 'Для оценки состояния поля пока недостаточно измерений NDVI/NDWI и проверенной модели риска. Проверьте данные поля и дождитесь подключения источника индексов.'
+  return 'Проверенной модели климатических рисков и прогноза урожая пока нет. Проверьте исходные данные выбранного поля и дату прогноза погоды перед решением о работах.'
 }
 
 async function seedDatabase(db) {
@@ -215,10 +238,17 @@ async function start() {
   const users = db.collection('users')
   const companies = db.collection('companies')
   const fields = db.collection('fields')
+  const tasks = db.collection('tasks')
+  const indexMeasurements = db.collection('indexMeasurements')
+  const cdseSyncs = db.collection('cdseSyncs')
+  const cdseInFlight = new Set()
   const sessions = db.collection('sessions')
   const weatherSnapshots = db.collection('weatherSnapshots')
   const weatherCache = new Map()
   if (fields.createIndex) await fields.createIndex({ companyId: 1, name: 1 }, { unique: true })
+  if (tasks.createIndex) await tasks.createIndex({ companyId: 1, fieldId: 1, status: 1, dueDate: 1 })
+  if (indexMeasurements.createIndex) await indexMeasurements.createIndex({ companyId: 1, fieldId: 1, index: 1, date: 1, source: 1 }, { unique: true })
+  if (cdseSyncs.createIndex) await cdseSyncs.createIndex({ companyId: 1, fieldId: 1 }, { unique: true })
   if (sessions.createIndex) await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
   const createSession = async (user) => {
     const token = crypto.randomBytes(32).toString('hex')
@@ -309,6 +339,123 @@ async function start() {
     if (data.name !== existing.name && await fields.findOne({ companyId: req.user.companyId, name: data.name })) return res.status(409).json({ error: 'Поле с таким названием уже существует' })
     await fields.updateMany({ _id, companyId: req.user.companyId }, { $set: { ...data, updatedAt: new Date() } })
     res.json(publicField({ ...existing, ...data, updatedAt: new Date() }))
+  })
+
+  app.get('/api/fields/:fieldId/indices', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const index = typeof req.query.index === 'string' ? req.query.index.toLowerCase() : 'ndvi'
+    const period = typeof req.query.period === 'string' ? req.query.period : '30d'
+    if (!supportedIndices.includes(index) || !['7d', '30d', '90d'].includes(period)) return res.status(400).json({ error: 'Укажите индекс ndvi/evi/ndwi и период 7d/30d/90d' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    const field = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    const start = new Date()
+    start.setUTCHours(0, 0, 0, 0)
+    start.setUTCDate(start.getUTCDate() - (Number.parseInt(period, 10) - 1))
+    const items = await indexMeasurements.find({ companyId: req.user.companyId, fieldId, index, date: { $gte: start.toISOString().slice(0, 10) } }).sort({ date: 1, ingestedAt: 1 }).toArray()
+    const currentGeometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary ?? null)).digest('hex')
+    const series = items.filter((item) => item.origin !== 'cdse' || item.geometryHash === currentGeometryHash).map(publicIndexMeasurement)
+    res.json({ fieldId: fieldId.toString(), index, period, series, latest: series.at(-1) ?? null, source: 'CDSE — рассчитано по контуру поля; CSV — загружено пользователем, происхождение не проверено' })
+  })
+
+  app.post('/api/fields/:fieldId/indices/import', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    if (!await fields.findOne({ _id: fieldId, companyId: req.user.companyId })) return res.status(404).json({ error: 'Поле не найдено' })
+    const values = req.body?.measurements
+    if (!Array.isArray(values) || values.length < 1 || values.length > 500) return res.status(400).json({ error: 'Передайте от 1 до 500 измерений' })
+    const measurements = values.map(normalizeMeasurement)
+    if (measurements.some((item) => !item) || new Set(measurements.map((item) => `${item.index}|${item.date}|${item.source}`)).size !== measurements.length) return res.status(400).json({ error: 'Проверьте даты, индекс, значение, источник и повторяющиеся строки CSV' })
+    const now = new Date()
+    for (const item of measurements) {
+      const filter = { companyId: req.user.companyId, fieldId, index: item.index, date: item.date, source: item.source }
+      const existing = await indexMeasurements.findOne(filter)
+      if (existing) await indexMeasurements.updateMany({ _id: existing._id, companyId: req.user.companyId }, { $set: { value: item.value, cloudCoverPct: item.cloudCoverPct, origin: 'user-upload', validPixelPct: null, processingVersion: null, ingestedAt: now } })
+      else await indexMeasurements.insertOne({ ...filter, value: item.value, cloudCoverPct: item.cloudCoverPct, ingestedAt: now })
+    }
+    res.status(201).json({ imported: measurements.length, ingestedAt: now.toISOString() })
+  })
+
+  app.post('/api/fields/:fieldId/indices/sync', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    const field = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    try { geometryFromBoundary(field.boundary) } catch (error) { return res.status(422).json({ error: error.message }) }
+    if (!isCdseConfigured()) return res.status(503).json({ error: 'CDSE не настроен. Укажите CDSE_CLIENT_ID и CDSE_CLIENT_SECRET на Railway.' })
+    const geometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary)).digest('hex')
+    const existingSync = await cdseSyncs.findOne({ companyId: req.user.companyId, fieldId })
+    const nextAllowedAt = existingSync && existingSync.geometryHash === geometryHash ? new Date(existingSync.lastSyncAt).getTime() + 6 * 60 * 60 * 1000 : 0
+    if (Date.now() < nextAllowedAt) return res.status(429).json({ error: `CDSE уже обновлялся для этого контура. Повторите после ${new Date(nextAllowedAt).toISOString()}.`, nextAllowedAt: new Date(nextAllowedAt).toISOString() })
+    if (cdseInFlight.has(fieldId.toString())) return res.status(429).json({ error: 'Расчёт CDSE для этого поля уже выполняется.' })
+    cdseInFlight.add(fieldId.toString())
+    try {
+      const measurements = await fetchCdseMeasurements(field.boundary)
+      const now = new Date()
+      for (const item of measurements) {
+        const filter = { companyId: req.user.companyId, fieldId, index: item.index, date: item.date, source: item.source }
+        const previous = await indexMeasurements.findOne(filter)
+        const data = { value: item.value, cloudCoverPct: null, validPixelPct: item.validPixelPct, origin: 'cdse', processingVersion: item.processingVersion, geometryHash, ingestedAt: now }
+        if (previous) await indexMeasurements.updateMany({ _id: previous._id, companyId: req.user.companyId }, { $set: data })
+        else await indexMeasurements.insertOne({ ...filter, ...data })
+      }
+      const syncData = { lastSyncAt: now, geometryHash, imported: measurements.length }
+      if (existingSync) await cdseSyncs.updateMany({ _id: existingSync._id, companyId: req.user.companyId }, { $set: syncData })
+      else await cdseSyncs.insertOne({ companyId: req.user.companyId, fieldId, ...syncData })
+      res.json({ imported: measurements.length, checkedAt: now.toISOString(), source: cdseSource, nextAllowedAt: new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString() })
+    } catch (error) {
+      console.error('CDSE sync failed:', error.message)
+      const quotaExceeded = /HTTP 429/.test(error.message)
+      res.status(quotaExceeded ? 429 : 502).json({ error: quotaExceeded ? 'Превышен лимит запросов CDSE. Повторите позже.' : 'CDSE временно недоступен или доступ не настроен. Проверьте ключи и журнал сервера.' })
+    } finally {
+      cdseInFlight.delete(fieldId.toString())
+    }
+  })
+
+  app.get('/api/tasks', requireUser, async (req, res) => {
+    const fieldId = req.query.field_id
+    if (typeof fieldId !== 'string' || !ObjectId.isValid(fieldId)) return res.status(400).json({ error: 'Укажите корректный field_id' })
+    const field = await fields.findOne({ _id: new ObjectId(fieldId), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    const items = await tasks.find({ fieldId: field._id, companyId: req.user.companyId }).sort({ dueDate: 1, createdAt: 1 }).toArray()
+    res.json(items.map(publicTask))
+  })
+
+  app.post('/api/tasks', requireUser, async (req, res) => {
+    const { fieldId, title, section = '', priority = 'medium', dueDate, assignee = '' } = req.body ?? {}
+    if (typeof fieldId !== 'string' || !ObjectId.isValid(fieldId) || !shortText(title, 120, true) || !shortText(section, 120) ||
+      !shortText(assignee, 80) || !['low', 'medium', 'high'].includes(priority) || !validTaskDate(dueDate)) {
+      return res.status(400).json({ error: 'Укажите поле, название, корректные приоритет и срок задачи' })
+    }
+    const field = await fields.findOne({ _id: new ObjectId(fieldId), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    const now = new Date()
+    const task = { fieldId: field._id, companyId: req.user.companyId, title: title.trim(), section: section.trim(), priority, dueDate, assignee: assignee.trim(), status: 'open', createdAt: now, updatedAt: now }
+    const inserted = await tasks.insertOne(task)
+    res.status(201).json(publicTask({ ...task, _id: inserted.insertedId }))
+  })
+
+  app.patch('/api/tasks/:taskId', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.taskId)) return res.status(400).json({ error: 'Некорректный taskId' })
+    const _id = new ObjectId(req.params.taskId)
+    const existing = await tasks.findOne({ _id, companyId: req.user.companyId })
+    if (!existing) return res.status(404).json({ error: 'Задача не найдена' })
+    const changes = req.body
+    const allowed = ['status', 'priority', 'dueDate', 'assignee', 'section']
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes) || !Object.keys(changes).length ||
+      Object.keys(changes).some((key) => !allowed.includes(key)) ||
+      ('status' in changes && !['open', 'done'].includes(changes.status)) ||
+      ('priority' in changes && !['low', 'medium', 'high'].includes(changes.priority)) ||
+      ('dueDate' in changes && !validTaskDate(changes.dueDate)) ||
+      ('assignee' in changes && !shortText(changes.assignee, 80)) ||
+      ('section' in changes && !shortText(changes.section, 120))) {
+      return res.status(400).json({ error: 'Некорректные изменения задачи' })
+    }
+    const updated = { ...changes, updatedAt: new Date() }
+    if ('assignee' in updated) updated.assignee = updated.assignee.trim()
+    if ('section' in updated) updated.section = updated.section.trim()
+    await tasks.updateMany({ _id, companyId: req.user.companyId }, { $set: updated })
+    res.json(publicTask({ ...existing, ...updated }))
   })
 
   app.get('/api/weather', requireUser, async (req, res) => {
@@ -424,23 +571,32 @@ async function start() {
     if (!ObjectId.isValid(req.body?.field?.id)) return res.status(400).json({ error: 'Укажите поле' })
     const field = await fields.findOne({ _id: new ObjectId(req.body.field.id), companyId: req.user.companyId })
     if (!field) return res.status(404).json({ error: 'Поле не найдено' })
-    if (!isAgriculturalQuestion(message)) return res.json({ answer: await fallbackAiAnswer(message), source: 'topic-guard', confidence: 1 })
-    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message), source: 'rule-based', confidence: 0, limitations: ['Нет расчётной модели прогноза и измерений индексов'] })
+    const indexSince = new Date()
+    indexSince.setUTCHours(0, 0, 0, 0)
+    indexSince.setUTCDate(indexSince.getUTCDate() - 89)
+    const currentGeometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary ?? null)).digest('hex')
+    const observations = (await Promise.all(supportedIndices.map(async (index) => {
+      const items = await indexMeasurements.find({ fieldId: field._id, companyId: req.user.companyId, index, date: { $gte: indexSince.toISOString().slice(0, 10) } }).sort({ date: -1, ingestedAt: -1 }).toArray()
+      const current = items.find((item) => item.origin !== 'cdse' || item.geometryHash === currentGeometryHash)
+      return current ? publicIndexMeasurement(current) : null
+    }))).filter(Boolean)
+    if (!isAgriculturalQuestion(message)) return res.json({ answer: await fallbackAiAnswer(message, observations), source: 'topic-guard', confidence: 1 })
+    if (!openAiApiKey) return res.json({ answer: await fallbackAiAnswer(message, observations), source: 'rule-based', confidence: 0, limitations: ['Нет расчётной модели урожая; CSV-измерения не проверяются приложением'] })
 
-    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и даты: прогноз урожая, индексы и индексы риска не подключены. Погоду упоминай только если она передана в контексте с датой. Не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
+    const systemPrompt = `Ты SmartAgro AI Advisor для агронома Акмолинской области. Отвечай только по работе хозяйства: поля, культуры, рост растений, NDVI/NDWI/EVI, погода, засуха, суховей, заморозки, сроки сева/обработки/уборки, урожайность, расходы, доходы и маржа. Если вопрос не относится к этим темам, вежливо откажись. Не выдумывай измерения и даты: прогноз урожая и индексы климатического риска не подключены. Упоминай только индексы из контекста с датой и источником: origin=cdse означает расчёт Sentinel-2 L2A по контуру поля и дневному интервалу, origin=user-upload означает CSV пользователя без независимой проверки источника. Нельзя делать вывод о локальных зонах из среднего значения по полю. Погоду упоминай только если она передана в контексте с датой. Не выдавай оценку за гарантию. Для химической обработки не назначай препарат или дозировку без подтвержденной инструкции и регистрации. Отвечай на русском кратко и практично, с разделами «Вывод» и «Следующий шаг».`
     const snapshot = await weatherSnapshots.findOne({ fieldId: field._id, companyId: req.user.companyId })
     const weather = snapshot?.forecast?.days?.some((day) => day.date >= new Date().toISOString().slice(0, 10)) ? snapshot.forecast : null
-    const context = { region: supportedRegion, field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, updatedAt: field.updatedAt, collectedT: field.harvestTotalT, costs: { fuel: field.fuelUsedL * field.fuelPricePerL, seed: field.seedCost, irrigation: field.irrigationCost, treatment: field.treatmentCost, fertilizer: field.fertilizerCost, machinery: field.machineryCost, storage: field.storageCost, other: field.otherCost } }, weather, ndvi: null, ndwi: null, yieldForecast: null, risks: null }
+    const context = { region: supportedRegion, field: { name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate, updatedAt: field.updatedAt, collectedT: field.harvestTotalT, costs: { fuel: field.fuelUsedL * field.fuelPricePerL, seed: field.seedCost, irrigation: field.irrigationCost, treatment: field.treatmentCost, fertilizer: field.fertilizerCost, machinery: field.machineryCost, storage: field.storageCost, other: field.otherCost } }, weather, observations, yieldForecast: null, risks: null }
     try {
       const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiApiKey}` }, body: JSON.stringify({ model: openAiModel, temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Контекст поля: ${JSON.stringify(context)}\nВопрос агронома: ${message}` }] }) })
       const payload = await openAiResponse.json()
       if (!openAiResponse.ok) throw new Error(payload?.error?.message || 'OpenAI request failed')
       const answer = payload.choices?.[0]?.message?.content?.trim()
       if (!answer) throw new Error('Empty OpenAI response')
-      res.json({ answer, source: 'openai', limitations: ['Индексы и прогноз урожайности не подключены'] })
+      res.json({ answer, source: 'openai', limitations: ['Прогноз урожайности не подключён; происхождение CSV-измерений не проверяется'] })
     } catch (error) {
       console.error('AI request failed:', error.message)
-      res.json({ answer: await fallbackAiAnswer(message), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
+      res.json({ answer: await fallbackAiAnswer(message, observations), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
     }
   })
 

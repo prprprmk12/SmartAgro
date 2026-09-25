@@ -69,6 +69,40 @@ input, select { min-height: 44px; }
 .data-empty { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-height: 160px; margin: 0 19px 18px; padding: 18px; border: 1px dashed #cdddc9; border-radius: 7px; background: #f7faf5; color: #526e5a; }
 .data-empty strong { font-size: 13px; }
 .data-empty span { max-width: 520px; font-size: 11px; line-height: 1.5; }
+.task-form { display: grid; gap: 10px; padding: 0 19px 15px; }
+.task-form label { display: grid; gap: 5px; min-width: 0; color: #607468; font-size: 10px; font-weight: 700; }
+.task-form input, .task-form select { width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; border: 1px solid #d8e6d4; border-radius: 5px; color: #405e49; background: #fff; font-size: 11px; }
+.task-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.task-add-button { min-height: 38px; border: 0; border-radius: 5px; color: #fff; background: #397052; font-size: 11px; font-weight: 700; }
+.task-add-button:disabled { opacity: .6; cursor: wait; }
+.task-list { max-height: 300px; overflow-y: auto; padding: 0 19px 15px; }
+.task-item { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #edf0eb; }
+.task-item > div { flex: 1; min-width: 0; }
+.task-item strong, .task-item small { display: block; }
+.task-item strong { color: #405e49; font-size: 11px; overflow-wrap: anywhere; }
+.task-item small { margin-top: 4px; color: #849789; font-size: 9px; line-height: 1.4; }
+.task-item.completed strong { text-decoration: line-through; color: #8c9f91; }
+.task-item .check-button { flex: 0 0 20px; }
+.task-priority { padding: 4px 6px; border-radius: 4px; background: #eaf3e5; color: #50805a; font-size: 9px; }
+.task-priority.medium { background: #fff1d6; color: #9e783a; }
+.task-priority.high { background: #ffede7; color: #af5d4c; }
+.task-error { margin: 0 19px 12px; color: #a25d4e; font-size: 11px; }
+.task-empty { padding: 4px 19px 17px; color: #829588; font-size: 11px; }
+.index-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.index-actions select { min-height: 34px; }
+.index-content { padding: 0 19px 16px; }
+.index-summary { display: flex; flex-direction: column; gap: 6px; }
+.index-summary strong { color: #285e40; font: 800 26px 'Manrope', sans-serif; }
+.index-summary strong small { font-size: 12px; }
+.index-summary > span { color: #607468; font-size: 10px; line-height: 1.5; }
+.index-graph { display: flex; height: 155px; margin-top: 12px; }
+.index-graph svg { width: 100%; height: 100%; min-width: 0; overflow: visible; border-bottom: 1px solid #e3ede1; background: repeating-linear-gradient(to top, transparent 0 49px, #e3ede1 50px); }
+.index-y { display: flex; flex-direction: column; justify-content: space-between; flex: 0 0 26px; padding: 0 6px 0 0; color: #839589; font-size: 10px; }
+.index-dates { display: flex; justify-content: space-between; margin-left: 26px; color: #839589; font-size: 10px; }
+.index-content .source-note { font-size: 10px; line-height: 1.5; }
+.index-feedback { margin: 0 19px 12px; padding: 9px 10px; border-radius: 5px; background: #e9f4e7; color: #3b7650; font-size: 10px; line-height: 1.5; }
+.index-feedback.error { background: #fff0eb; color: #a25d4e; }
+@media (max-width: 700px) { .index-actions { justify-content: flex-start; } .chart-card .panel-header { flex-wrap: wrap; gap: 8px; } }
 .weather-list { grid-template-columns: repeat(7, minmax(100px, 1fr)); overflow-x: auto; gap: 6px; }
 .weather-day { text-align: center; }
 @media (max-width: 700px) { .weather-day:nth-child(n+5) { display: flex; } }

@@ -1,5 +1,7 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import YandexFieldMap from './FieldMap'
+import { buildFieldReportHtml } from './report'
+import { parseIndexCsv, type IndexMeasurement, type IndexName, type IndexResponse } from './indices'
 
 type FieldRecord = {
   id?: string
@@ -42,10 +44,24 @@ type Company = { id?: string; name: string; region: string; location: string; fi
 type UserRecord = { id: string; name: string; email: string; companyId: string }
 type WeatherDay = { date: string; tempMaxC: number | null; tempMinC: number | null; precipitationMm: number | null; rainProbabilityPct: number | null; windMaxKmh: number | null; humidityPct: number | null; weatherCode: number | null }
 type WeatherForecast = { source: string; fetchedAt: string; status: 'current' | 'stale'; coordinates: [number, number]; days: WeatherDay[] }
+type FieldTask = { id: string; fieldId: string; title: string; section: string; priority: 'low' | 'medium' | 'high'; dueDate: string; assignee: string; status: 'open' | 'done'; createdAt: string; updatedAt: string }
+
+async function authenticatedRequest<T>(path: string, method = 'GET', body?: object): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  })
+  const result = await response.json() as T & { error?: string }
+  if (!response.ok) throw new Error(result.error || 'Ошибка запроса к API')
+  return result
+}
 
 const actualYield = (field: FieldRecord) => field.harvestTotalT > 0 && field.plantedAreaHa > 0 ? field.harvestTotalT / field.plantedAreaHa : null
 const formatMeasurement = (value: number | null, unit: string) => value === null ? 'Нет данных' : `${value.toFixed(2)} ${unit}`
 const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : 'Дата не указана'
+const indexPoint = (value: number, position: number, count: number) => [position * 700 / Math.max(count - 1, 1), 165 - (value + 1) * 80] as const
+const indexLinePath = (series: IndexMeasurement[]) => series.map((sample, position) => { const [x, y] = indexPoint(sample.value, position, series.length); return `${position === 0 ? 'M' : 'L'} ${x} ${y}` }).join(' ')
 
 function getStoredUser(): UserRecord | null {
   try {
@@ -289,6 +305,15 @@ function App() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [active, setActive] = useState('Обзор')
   const [layer, setLayer] = useState('NDVI')
+  const [indexPeriod, setIndexPeriod] = useState<'7d' | '30d' | '90d'>('30d')
+  const [indexData, setIndexData] = useState<IndexResponse | null>(null)
+  const [indexLoading, setIndexLoading] = useState(false)
+  const [indexError, setIndexError] = useState('')
+  const [indexRefresh, setIndexRefresh] = useState(0)
+  const [importOpen, setImportOpen] = useState(false)
+  const [cdseLoading, setCdseLoading] = useState(false)
+  const [cdseError, setCdseError] = useState('')
+  const [cdseMessage, setCdseMessage] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [fieldInfoOpen, setFieldInfoOpen] = useState(false)
   const [agronomistName, setAgronomistName] = useState(() => getStoredUser()?.name || 'Агроном')
@@ -303,6 +328,12 @@ function App() {
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [weatherError, setWeatherError] = useState('')
   const [weatherRefresh, setWeatherRefresh] = useState(0)
+  const [tasks, setTasks] = useState<FieldTask[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
+  const [tasksError, setTasksError] = useState('')
+  const [taskSubmitting, setTaskSubmitting] = useState(false)
+  const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null)
+  const [taskDraft, setTaskDraft] = useState({ title: '', section: '', priority: 'medium' as FieldTask['priority'], dueDate: '', assignee: '' })
 
   const persistFields = (nextFields: FieldRecord[]) => {
     setFieldRecords(nextFields)
@@ -329,6 +360,91 @@ function App() {
   }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
+  const indexName: IndexName = layer === 'Базовая карта' ? 'ndvi' : layer.toLowerCase() as IndexName
+  const visibleIndex = indexData?.fieldId === selectedField.id && indexData?.index === indexName && indexData?.period === indexPeriod ? indexData : null
+
+  useEffect(() => {
+    let cancelled = false
+    setIndexData(null)
+    setIndexError('')
+    if (!authenticated || !selectedField.id || isDemoUser()) { setIndexLoading(false); return }
+    setIndexLoading(true)
+    authenticatedRequest<IndexResponse>(`/api/fields/${encodeURIComponent(selectedField.id)}/indices?index=${indexName}&period=${indexPeriod}`)
+      .then((response) => { if (!cancelled) setIndexData(response) })
+      .catch((error) => { if (!cancelled) setIndexError(error instanceof Error ? error.message : 'Не удалось загрузить индексы') })
+      .finally(() => { if (!cancelled) setIndexLoading(false) })
+    return () => { cancelled = true }
+  }, [authenticated, selectedField.id, indexName, indexPeriod, indexRefresh])
+
+  useEffect(() => { setCdseError(''); setCdseMessage('') }, [selectedField.id])
+
+  const syncCdse = async () => {
+    const fieldId = selectedField.id
+    if (!fieldId || cdseLoading) return
+    setCdseLoading(true)
+    setCdseError('')
+    setCdseMessage('')
+    try {
+      const result = await authenticatedRequest<{ imported: number; checkedAt: string }>(`/api/fields/${encodeURIComponent(fieldId)}/indices/sync`, 'POST')
+      if (selectedFieldIdRef.current === fieldId) {
+        setCdseMessage(result.imported ? `CDSE: сохранено ${result.imported} измерений. Расчёт выполнен ${formatDateTime(result.checkedAt)}.` : 'CDSE: за последние 30 дней не найдено подходящих измерений после маски облаков и проверки покрытия.')
+        setIndexRefresh((value) => value + 1)
+      }
+    } catch (error) {
+      if (selectedFieldIdRef.current === fieldId) setCdseError(error instanceof Error ? error.message : 'CDSE недоступен')
+    } finally {
+      setCdseLoading(false)
+    }
+  }
+  const selectedFieldIdRef = useRef(selectedField.id)
+  selectedFieldIdRef.current = selectedField.id
+
+  useEffect(() => {
+    let cancelled = false
+    setTasks([])
+    setTasksError('')
+    setTaskDraft({ title: '', section: '', priority: 'medium', dueDate: '', assignee: '' })
+    if (!authenticated || !selectedField.id || isDemoUser()) { setTasksLoading(false); return }
+    setTasksLoading(true)
+    authenticatedRequest<FieldTask[]>(`/api/tasks?field_id=${encodeURIComponent(selectedField.id)}`)
+      .then((items) => { if (!cancelled) setTasks(items) })
+      .catch((error) => { if (!cancelled) setTasksError(error instanceof Error ? error.message : 'Не удалось загрузить задачи') })
+      .finally(() => { if (!cancelled) setTasksLoading(false) })
+    return () => { cancelled = true }
+  }, [authenticated, selectedField.id])
+
+  const createTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const fieldId = selectedField.id
+    if (!fieldId || taskSubmitting) return
+    setTaskSubmitting(true)
+    setTasksError('')
+    try {
+      const saved = await authenticatedRequest<FieldTask>('/api/tasks', 'POST', { ...taskDraft, fieldId })
+      if (selectedFieldIdRef.current === fieldId) {
+        setTasks((current) => [...current, saved])
+        setTaskDraft({ title: '', section: '', priority: 'medium', dueDate: '', assignee: '' })
+      }
+    } catch (error) {
+      setTasksError(error instanceof Error ? error.message : 'Не удалось создать задачу')
+    } finally {
+      setTaskSubmitting(false)
+    }
+  }
+
+  const toggleTask = async (task: FieldTask) => {
+    if (taskUpdatingId) return
+    setTaskUpdatingId(task.id)
+    setTasksError('')
+    try {
+      const updated = await authenticatedRequest<FieldTask>(`/api/tasks/${task.id}`, 'PATCH', { status: task.status === 'open' ? 'done' : 'open' })
+      if (selectedFieldIdRef.current === updated.fieldId) setTasks((current) => current.map((item) => item.id === updated.id ? updated : item))
+    } catch (error) {
+      setTasksError(error instanceof Error ? error.message : 'Не удалось обновить задачу')
+    } finally {
+      setTaskUpdatingId(null)
+    }
+  }
 
   useEffect(() => {
     if (!fieldRecords.some((field) => field.name === selectedFieldName) && fieldRecords[0]) {
@@ -559,6 +675,7 @@ function App() {
             </div>
             <div className="heading-actions">
               <div className="outline-button secondary-action">⌘ {selectedCompany.name}</div>
+              <button className="outline-button" onClick={() => setReportOpen(true)} disabled={tasksLoading || weatherLoading}>↓ Скачать отчёт</button>
               <button className="outline-button" onClick={() => setChatOpen(true)}>✦ Спросить AI-агента</button>
             </div>
           </section>
@@ -580,8 +697,8 @@ function App() {
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} onSelectField={setSelectedFieldName} />
-                <div className="layer-switcher">{['NDVI', 'NDWI', 'Истинный цвет'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexObservation={layer !== 'Базовая карта' ? visibleIndex?.latest ?? null : null} onSelectField={setSelectedFieldName} />
+                <div className="layer-switcher">{['NDVI', 'EVI', 'NDWI', 'Базовая карта'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
             </div>
 
@@ -633,9 +750,19 @@ function App() {
           <section className="lower-grid" id="growth-chart">
             <div className="chart-card panel">
               <div className="panel-header">
-                <div><h2>Рост растений</h2><p>{selectedField.name} · {selectedField.crop} · спутниковые индексы</p></div>
+                <div><h2>Индексы растительности</h2><p>{selectedField.name} · {indexName.toUpperCase()} · загруженные измерения по полю</p></div>
+                <div className="index-actions"><select aria-label="Период индекса" value={indexPeriod} onChange={(event) => setIndexPeriod(event.target.value as '7d' | '30d' | '90d')}><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="90d">90 дней</option></select><button className="text-button" onClick={() => void syncCdse()} disabled={!selectedField.id || cdseLoading}>{cdseLoading ? 'CDSE: расчёт…' : '🛰 Обновить из CDSE'}</button><button className="text-button" onClick={() => setImportOpen(true)} disabled={!selectedField.id}>＋ Загрузить CSV</button></div>
               </div>
-              <div className="data-empty"><strong>Нет данных NDVI / NDWI</strong><span>Спутниковый источник не подключён. График появится после загрузки измерений с датами и указанием источника.</span></div>
+              {cdseError && <p className="index-feedback error" role="alert">{cdseError}</p>}
+              {cdseMessage && <p className="index-feedback" role="status">{cdseMessage}</p>}
+              {visibleIndex?.series.length ? <div className="index-content">
+                <div className="index-summary"><strong>{visibleIndex.latest!.value.toFixed(3)} <small>{indexName.toUpperCase()}</small></strong><span>Последнее измерение: {visibleIndex.latest!.date} · {visibleIndex.latest!.source} · сохранено {formatDateTime(visibleIndex.latest!.ingestedAt)}{visibleIndex.latest!.cloudCoverPct !== null ? ` · облачность ${visibleIndex.latest!.cloudCoverPct}%` : ''}{visibleIndex.latest!.validPixelPct != null ? ` · валидные пиксели ${visibleIndex.latest!.validPixelPct}%` : ''}</span></div>
+                <div className="index-graph"><div className="index-y"><span>1</span><span>0</span><span>−1</span></div><svg viewBox="0 0 700 170" preserveAspectRatio="none" role="img" aria-label={`Измерения ${indexName.toUpperCase()} за ${indexPeriod}`}>
+                  <path d={indexLinePath(visibleIndex.series)} fill="none" stroke="#3a8d65" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+                  {visibleIndex.series.map((sample, position) => { const [x, y] = indexPoint(sample.value, position, visibleIndex.series.length); return <circle key={`${sample.date}-${sample.source}-${position}`} cx={x} cy={y} r="5" fill="#3a8d65" stroke="#fff" strokeWidth="2"><title>{`${sample.date}: ${sample.value.toFixed(3)} · ${sample.source}${sample.cloudCoverPct === null ? '' : ` · облачность ${sample.cloudCoverPct}%`}${sample.validPixelPct == null ? '' : ` · валидные пиксели ${sample.validPixelPct}%`}`}</title></circle> })}
+                </svg></div><div className="index-dates"><span>{visibleIndex.series[0].date}</span><span>{visibleIndex.latest!.date}</span></div>
+                <p className="source-note">{visibleIndex.source}. Показано среднее значение по полю, а не карта зон. {visibleIndex.latest!.origin === 'cdse' ? `CDSE, версия обработки: ${visibleIndex.latest!.processingVersion || 'не указана'}. Дата обозначает дневной интервал расчёта, не время конкретного снимка.` : 'Измерение загружено пользователем и не проверено.'}{visibleIndex.latest!.cloudCoverPct !== null && visibleIndex.latest!.cloudCoverPct > 60 ? ' Высокая облачность: оценку следует перепроверить.' : ''}</p>
+              </div> : <div className="data-empty"><strong>{indexLoading ? 'Загружаем измерения…' : `Нет измерений ${indexName.toUpperCase()} за ${indexPeriod}`}</strong><span>{indexError || 'Загрузите датированные измерения от спутникового источника в CSV. Значения без источника не отображаются.'}</span></div>}
             </div>
 
             <div className="weather-card panel">
@@ -661,8 +788,27 @@ function App() {
               <div className="data-empty"><strong>Нет оценки рисков</strong><span>Для расчёта нужны исторические данные и проверенная методика. Прогноз погоды сам по себе не является оценкой засухи или раннего снега.</span></div>
             </div>
             <div className="task-card panel">
-              <div className="panel-header"><div><h2>Следующие решения</h2><p>Задачи и рекомендации · {selectedField.name}</p></div></div>
-              <div className="data-empty"><strong>Нет подтверждённых рекомендаций</strong><span>Даты работ и задачи появятся после подключения расчётов и операций по полю.</span></div>
+              <div className="panel-header"><div><h2>Задачи поля</h2><p>{selectedField.name} · учёт агронома · MongoDB</p></div></div>
+              {!selectedField.id ? <div className="data-empty"><strong>Задачи недоступны</strong><span>Войдите в аккаунт и сохраните поле, чтобы вести задачи.</span></div> : <>
+                <form className="task-form" onSubmit={(event) => void createTask(event)}>
+                  <label>Задача<input value={taskDraft.title} onChange={(event) => setTaskDraft((draft) => ({ ...draft, title: event.target.value }))} maxLength={120} placeholder="Осмотреть участок поля" required /></label>
+                  <label>Участок<input value={taskDraft.section} onChange={(event) => setTaskDraft((draft) => ({ ...draft, section: event.target.value }))} maxLength={120} placeholder="Например, юго-восточная часть" /></label>
+                  <div className="task-form-row">
+                    <label>Срок<input type="date" value={taskDraft.dueDate} onChange={(event) => setTaskDraft((draft) => ({ ...draft, dueDate: event.target.value }))} required /></label>
+                    <label>Приоритет<select value={taskDraft.priority} onChange={(event) => setTaskDraft((draft) => ({ ...draft, priority: event.target.value as FieldTask['priority'] }))}><option value="low">Низкий</option><option value="medium">Средний</option><option value="high">Высокий</option></select></label>
+                  </div>
+                  <label>Ответственный<input value={taskDraft.assignee} onChange={(event) => setTaskDraft((draft) => ({ ...draft, assignee: event.target.value }))} maxLength={80} placeholder="Имя сотрудника" /></label>
+                  <button type="submit" className="task-add-button" disabled={taskSubmitting}>{taskSubmitting ? 'Сохранение…' : '＋ Создать задачу'}</button>
+                </form>
+                {tasksError && <p className="task-error" role="alert">{tasksError}</p>}
+                {tasksLoading ? <p className="task-empty">Загружаем задачи…</p> : tasks.length === 0 ? <p className="task-empty">Для этого поля задач пока нет.</p> : <div className="task-list">
+                  {[...tasks].sort((left, right) => Number(left.status === 'done') - Number(right.status === 'done') || left.dueDate.localeCompare(right.dueDate)).map((task) => <div key={task.id} className={task.status === 'done' ? 'task-item completed' : 'task-item'}>
+                    <button type="button" className="check-button" aria-label={task.status === 'done' ? `Вернуть задачу «${task.title}» в работу` : `Выполнить задачу «${task.title}»`} title={task.status === 'done' ? 'Вернуть в работу' : 'Отметить выполненной'} disabled={taskUpdatingId === task.id} onClick={() => void toggleTask(task)}>{task.status === 'done' ? '✓' : ''}</button>
+                    <div><strong>{task.title}</strong><small>{task.section ? `${task.section} · ` : ''}до {task.dueDate} · {task.assignee || 'Без ответственного'}</small></div>
+                    <span className={`task-priority ${task.priority}`}>{task.priority === 'high' ? 'Высокий' : task.priority === 'medium' ? 'Средний' : 'Низкий'}</span>
+                  </div>)}
+                </div>}
+              </>}
             </div>
           </section>
 
@@ -692,7 +838,8 @@ function App() {
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
       {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} onClose={() => setProfileOpen(false)} onLogout={() => { localStorage.removeItem('smartagro-authenticated'); localStorage.removeItem('smartagro-user'); localStorage.removeItem('smartagro-company'); localStorage.removeItem('smartagro-token'); setProfileOpen(false); setAuthenticated(false) }} />}
-      {reportOpen && <ReportPanel company={selectedCompany.name} fields={fieldRecords.map((field) => field.name)} onClose={() => setReportOpen(false)} />}
+      {reportOpen && <ReportPanel company={selectedCompany.name} field={selectedField} weather={weather} tasks={tasks} tasksError={tasksError} onClose={() => setReportOpen(false)} />}
+      {importOpen && selectedField.id && <IndexImportPanel key={selectedField.id} fieldId={selectedField.id} fieldName={selectedField.name} onClose={() => setImportOpen(false)} onImported={(index) => { setLayer(index.toUpperCase()); setIndexRefresh((value) => value + 1); setImportOpen(false) }} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
       {fieldInfoOpen && <FieldInfoPanel field={selectedField} onClose={() => setFieldInfoOpen(false)} />}
       {fieldEditorOpen && <FieldEditorModal field={editingFieldName ? fieldRecords.find((field) => field.name === editingFieldName) : undefined} existingFields={fieldRecords} onClose={closeFieldEditor} onSave={saveField} />}
@@ -711,18 +858,70 @@ function ProfilePanel({ name, company, onClose, onLogout }: { name: string; comp
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">АМ</div><p className="eyebrow green-text">ПРОФИЛЬ АГРОНОМА</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>Агроном</b></span><span><small>Доступ</small><b>Рабочее место ТОО</b></span></div><button className="outline-button profile-button" onClick={onLogout}>Выйти из аккаунта</button></div></div>
 }
 
-function ReportPanel({ company, fields, onClose }: { company: string; fields: string[]; onClose: () => void }) {
-  const download = () => {
-    const report = `SmartAgro AI Advisor\n${company}\nПолей: ${fields.length}\nПрогноз урожая: нет данных (источник не подключён)\nNDVI: нет данных (источник не подключён)\n`
-    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
+function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { company: string; field: FieldRecord; weather: WeatherForecast | null; tasks: FieldTask[]; tasksError: string; onClose: () => void }) {
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+  const download = async () => {
+    if (generating) return
+    setGenerating(true)
+    setError('')
+    try {
+      const indices = field.id ? await Promise.all((['ndvi', 'evi', 'ndwi'] as const).map((name) => authenticatedRequest<IndexResponse>(`/api/fields/${encodeURIComponent(field.id!)}/indices?index=${name}&period=90d`))) : []
+      const report = buildFieldReportHtml(company, field, weather, tasks, new Date(), !field.id ? 'поле не сохранено на сервере' : tasksError || null, indices)
+      const url = URL.createObjectURL(new Blob([report], { type: 'text/html;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `smartagro-field-${field.id || 'local'}.html`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось сформировать отчёт')
+    } finally {
+      setGenerating(false)
+    }
+  }
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ ПО ПОЛЮ</p><h2>{field.name}</h2><p>Отчёт содержит контур, учёт урожая и затрат, загруженные индексы за 90 дней, прогноз погоды и открытые задачи. Отсутствующие данные отмечены отдельно.</p><div className="report-preview"><b>{company}</b><span>{field.crop} · {field.areaHa} га</span><span>Погода: {weather ? `${weather.source} · ${formatDateTime(weather.fetchedAt)}` : 'нет данных'}</span><span>{tasksError || !field.id ? 'Задачи: нет данных' : `Открытых задач: ${tasks.filter((task) => task.status === 'open').length}`}</span></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="dark-button" disabled={generating} onClick={() => void download()}>{generating ? 'Собираем показатели…' : 'Скачать HTML-отчёт'} <span>↓</span></button></div></div>
+}
+
+function IndexImportPanel({ fieldId, fieldName, onClose, onImported }: { fieldId: string; fieldName: string; onClose: () => void; onImported: (index: IndexName) => void }) {
+  const [samples, setSamples] = useState<Array<Omit<IndexMeasurement, 'ingestedAt'>>>([])
+  const [fileName, setFileName] = useState('')
+  const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const selectFile = async (file?: File) => {
+    setSamples([])
+    setFileName(file?.name || '')
+    setError('')
+    if (!file) return
+    try {
+      if (file.size > 256_000) throw new Error('CSV слишком большой (максимум 256 КБ)')
+      setSamples(parseIndexCsv(await file.text()))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось прочитать CSV')
+    }
+  }
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob(['date,index,value,source,cloudCoverPct\n'], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = 'smartagro-report.txt'
+    link.download = 'smartagro-indices-template.csv'
     link.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТЫ</p><h2>Сводка хозяйства</h2><div className="report-preview"><b>{company}</b><span>{fields.length} полей</span><span>Индексы и прогноз урожая: источники не подключены</span></div><button className="dark-button" onClick={download}>Скачать сводку <span>↓</span></button></div></div>
+  const upload = async () => {
+    if (!samples.length || uploading) return
+    setUploading(true)
+    setError('')
+    try {
+      await authenticatedRequest<{ imported: number }>(`/api/fields/${encodeURIComponent(fieldId)}/indices/import`, 'POST', { measurements: samples })
+      onImported(samples[0].index)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось сохранить измерения')
+    } finally {
+      setUploading(false)
+    }
+  }
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button type="button" className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ЗАГРУЗКА ИЗМЕРЕНИЙ · {fieldName}</p><h2>NDVI / EVI / NDWI</h2><p>Загрузите CSV с полученными от вашего спутникового провайдера средними значениями по этому полю. Файл должен содержать колонки <code>date,index,value,source</code> и необязательную <code>cloudCoverPct</code>. Дата — ГГГГ-ММ-ДД; значение индекса — от −1 до 1; облачность — от 0 до 100%. Разделитель: запятая или точка с запятой.</p><p>Укажите реальный источник в каждой строке. Приложение хранит данные как загруженные пользователем и не подтверждает происхождение спутникового снимка.</p><button type="button" className="outline-button" onClick={downloadTemplate}>↓ Скачать пустой шаблон CSV</button><label className="form-label">Файл измерений<input className="form-input" type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>{samples.length > 0 && <div className="report-preview"><strong>{fileName}</strong><span>Измерений: {samples.length}</span><span>Первый источник: {samples[0].source}</span></div>}{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="outline-button" onClick={onClose}>Отмена</button><button type="button" className="dark-button" disabled={!samples.length || uploading} onClick={() => void upload()}>{uploading ? 'Сохранение…' : `Сохранить ${samples.length || ''} измерений`} <span>→</span></button></div></div></div>
 }
 
 
