@@ -7,6 +7,7 @@ import TeamPanel from './TeamPanel'
 import SeasonHistoryPanel from './SeasonHistoryPanel'
 import type { SeasonRecord } from './seasons'
 import type { ForecastResult } from './forecast'
+import { readAuthenticatedResponse, SessionExpiredError } from './session'
 
 type FieldRecord = {
   id?: string
@@ -57,9 +58,7 @@ async function authenticatedRequest<T>(path: string, method = 'GET', body?: obje
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
-  const result = await response.json() as T & { error?: string }
-  if (!response.ok) throw new Error(result.error || 'Ошибка запроса к API')
-  return result
+  return readAuthenticatedResponse<T>(response)
 }
 
 const actualYield = (field: FieldRecord) => field.harvestTotalT > 0 && field.plantedAreaHa > 0 ? field.harvestTotalT / field.plantedAreaHa : null
@@ -86,9 +85,7 @@ async function fieldRequest(path: string, method = 'GET', data?: FieldRecord | F
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
     ...(data ? { body: JSON.stringify(data) } : {}),
   })
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || 'Не удалось сохранить данные поля')
-  return result
+  return readAuthenticatedResponse<FieldRecord | FieldRecord[]>(response)
 }
 
 function getInitials(name: string) {
@@ -309,6 +306,7 @@ function App() {
   const [fieldsError, setFieldsError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [sessionNotice, setSessionNotice] = useState('')
   const [active, setActive] = useState('Обзор')
   const [layer, setLayer] = useState('Спутник')
   const [indexPeriod, setIndexPeriod] = useState<'7d' | '30d' | '90d'>('30d')
@@ -346,6 +344,24 @@ function App() {
   const [forecastError, setForecastError] = useState('')
   const [forecastRefresh, setForecastRefresh] = useState(0)
 
+  useEffect(() => {
+    const expired = () => {
+      setAuthenticated(false)
+      setSessionNotice('Сессия истекла или была отозвана. Войдите снова.')
+      setCurrentUser(null)
+      setFieldRecords([])
+      setFieldsError('')
+      setFieldsLoading(false)
+      setChatOpen(false)
+      setProfileOpen(false)
+      setTeamOpen(false)
+      setReportOpen(false)
+      setImportOpen(false)
+    }
+    window.addEventListener('smartagro-session-expired', expired)
+    return () => window.removeEventListener('smartagro-session-expired', expired)
+  }, [])
+
   const persistFields = (nextFields: FieldRecord[]) => {
     setFieldRecords(nextFields)
     if (isDemoUser()) localStorage.setItem(getCompanyStorageKey(selectedCompany.id, selectedCompany.name), JSON.stringify(nextFields))
@@ -365,6 +381,7 @@ function App() {
       setSelectedFieldName(items[0]?.name || '')
       setOnboardingDone(items.length > 0)
     } catch (error) {
+      if (error instanceof SessionExpiredError) return
       setFieldsError(error instanceof Error ? error.message : 'Не удалось загрузить поля')
     } finally {
       setFieldsLoading(false)
@@ -497,6 +514,7 @@ function App() {
 
 
   const authenticate = (user: UserRecord, token?: string) => {
+    setSessionNotice('')
     localStorage.setItem('smartagro-authenticated', 'true')
     localStorage.setItem('smartagro-user', JSON.stringify(user))
     setCurrentUser(user)
@@ -612,7 +630,7 @@ function App() {
     if (!selectedField.id || !authenticated || isDemoUser()) { setWeatherLoading(false); return }
     setWeatherLoading(true)
     fetch(`/api/weather?field_id=${encodeURIComponent(selectedField.id)}${weatherRefresh ? '&refresh=1' : ''}`, { headers: { Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` } })
-      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Прогноз недоступен'); return data as WeatherForecast })
+      .then((response) => readAuthenticatedResponse<WeatherForecast>(response))
       .then((data) => { if (!cancelled) setWeather(data) })
       .catch((error) => { if (!cancelled) setWeatherError(error instanceof Error ? error.message : 'Прогноз недоступен') })
       .finally(() => { if (!cancelled) setWeatherLoading(false) })
@@ -637,7 +655,7 @@ function App() {
   }, [authenticated, locationStatus])
 
   if (!authenticated) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onAuthenticated={authenticate} onCompanySelected={selectCompany} />
+    return <AuthScreen mode={authMode} setMode={setAuthMode} notice={sessionNotice} onAuthenticated={authenticate} onCompanySelected={selectCompany} />
   }
 
   if (fieldsLoading || fieldsError) {
@@ -1031,10 +1049,11 @@ function AIChat({ field, onClose }: { field: FieldRecord; onClose: () => void })
           field: { id: field.id },
         }),
       })
-      const result = await response.json()
+      const result = await readAuthenticatedResponse<{ answer: string; source?: string }>(response)
       setMessages((current) => [...current, { role: 'assistant', text: result.answer || 'Не удалось получить ответ.', source: result.source }])
-    } catch {
-      setMessages((current) => [...current, { role: 'assistant', text: 'Не удалось связаться с AI-сервисом. Проверьте, запущен ли backend на порту 3001.', source: 'Ошибка' }])
+    } catch (error) {
+      if (error instanceof SessionExpiredError) return
+      setMessages((current) => [...current, { role: 'assistant', text: error instanceof Error ? error.message : 'Не удалось связаться с AI-сервисом.', source: 'Ошибка' }])
     } finally { setLoading(false) }
   }
 
@@ -1297,8 +1316,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
           images: photos,
         }),
       })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error || 'AI не смог проанализировать фото')
+      const result = await readAuthenticatedResponse<{ analysis: string; source?: string; confidence?: number }>(response)
       const entry: FieldAnalysis = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),

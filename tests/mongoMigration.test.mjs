@@ -5,6 +5,7 @@ import { ObjectId as MongoObjectId } from 'mongodb'
 import { migrateMongoToPostgres } from '../server/mongoMigration.mjs'
 import { createPostgresDatabase } from '../server/postgres.mjs'
 import { ObjectId } from '../server/object-id.mjs'
+import { legacyPasswordHash, verifyPassword } from '../server/passwords.mjs'
 
 test('migration keeps old MongoDB IDs and rolls back incomplete imports', { timeout: 90000 }, async () => {
   const engine = new PGlite()
@@ -14,7 +15,7 @@ test('migration keeps old MongoDB IDs and rolls back incomplete imports', { time
   const fieldId = new MongoObjectId()
   const documents = {
     companies: [{ _id: companyId, name: 'Farm', region: 'Акмолинская область', location: 'Test', createdAt: new Date('2025-01-01T00:00:00Z') }],
-    users: [{ _id: userId, companyId, email: 'owner@example.test', name: 'Owner', passwordHash: 'old-hash', createdAt: new Date('2025-01-02T00:00:00Z') }],
+    users: [{ _id: userId, companyId, email: 'owner@example.test', name: 'Owner', passwordHash: legacyPasswordHash('test-password'), createdAt: new Date('2025-01-02T00:00:00Z') }],
     fields: [{ _id: fieldId, companyId, name: 'Wheat', areaHa: 30, coordinates: [51.4, 71.5] }],
     sessions: [],
   }
@@ -33,7 +34,8 @@ test('migration keeps old MongoDB IDs and rolls back incomplete imports', { time
     assert.equal(result.counts.sessions, 0)
     const user = await createPostgresDatabase(pool).collection('users').findOne({ _id: new ObjectId(userId.toString()) })
     assert.equal(user.companyId.toString(), companyId.toString())
-    assert.equal(user.passwordHash, 'old-hash')
+    assert.equal(verifyPassword('test-password', user.passwordHash), true)
+    assert.equal(verifyPassword('incorrect-password', user.passwordHash), false)
     assert.equal(user.createdAt.toISOString(), '2025-01-02T00:00:00.000Z')
     await assert.rejects(migrateMongoToPostgres(source, pool), /target is not empty/)
     assert.equal((await pool.query('SELECT count(*)::integer AS count FROM smartagro_documents')).rows[0].count, 3)

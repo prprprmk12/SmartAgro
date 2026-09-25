@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { readAuthenticatedResponse } from './session'
 
 type Member = { id: string; name: string; email: string; role: 'owner' | 'agronomist'; disabled: boolean }
 type Invitation = { id: string; email: string; role: 'agronomist'; expiresAt: string }
@@ -9,10 +10,7 @@ async function request<T>(path: string, method = 'GET', body?: object): Promise<
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
-  if (response.status === 204) return undefined as T
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || 'Ошибка при управлении доступом')
-  return result as T
+  return readAuthenticatedResponse<T>(response)
 }
 
 export default function TeamPanel({ company, currentUserId, onClose }: { company: string; currentUserId: string; onClose: () => void }) {

@@ -4,12 +4,13 @@ type Company = { id?: string; name: string; region: string; location: string; fi
 type UserRecord = { id: string; name: string; email: string; companyId: string; role: 'owner' | 'agronomist' }
 type Props = {
   mode: 'login' | 'register'
+  notice?: string
   setMode: (mode: 'login' | 'register') => void
   onAuthenticated: (user: UserRecord, token?: string) => void
   onCompanySelected: (company: Company) => void
 }
 
-export default function AuthScreen({ mode, setMode, onAuthenticated, onCompanySelected }: Props) {
+export default function AuthScreen({ mode, setMode, notice, onAuthenticated, onCompanySelected }: Props) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -73,7 +74,8 @@ export default function AuthScreen({ mode, setMode, onAuthenticated, onCompanySe
     <div className="auth-card">
       <div className="auth-card-head"><span className="auth-kicker">SMARTAGRO AI ADVISOR</span></div>
       <h2>{mode === 'register' ? 'Создайте аккаунт' : 'С возвращением'}</h2>
-      <p className="auth-subtitle">{mode === 'register' ? 'Новое ТОО регистрирует его владелец. В существующее хозяйство агроном входит по приглашению.' : 'Войдите, чтобы работать с полями вашего хозяйства.'}</p>
+      <p className="auth-subtitle">{mode === 'register' ? 'Новое ТОО регистрирует его владелец. В существующее хозяйство агроном входит по приглашению.' : 'Войдите, чтобы работать с полями вашего хозяйства. После переноса базы старый аккаунт заработает только если пользователи были перенесены из MongoDB.'}</p>
+      {notice && <p className="auth-error" role="status">{notice}</p>}
       <form onSubmit={(event) => void submit(event)}>
         {mode === 'register' && <label className="form-label">Ваше имя<input className="form-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required /></label>}
         <label className="form-label">Рабочая почта<input className="form-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
@@ -82,7 +84,7 @@ export default function AuthScreen({ mode, setMode, onAuthenticated, onCompanySe
           <label className="form-label">Рабочее место<select className="form-input" value={companyMode} onChange={(event) => setCompanyMode(event.target.value as 'new' | 'existing')}><option value="new">Создать новое ТОО (я владелец)</option><option value="existing">Войти в существующее ТОО по приглашению</option></select></label>
           {companyMode === 'new' ? <>
             <label className="form-label">Название ТОО<input className="form-input" value={companyName} maxLength={120} onChange={(event) => setCompanyName(event.target.value)} required /></label>
-            <label className="form-label">БИН ТОО<input className="form-input" inputMode="numeric" value={companyBin} maxLength={12} onChange={(event) => setCompanyBin(event.target.value.replace(/\D/g, ''))} placeholder="12 цифр" required /></label>
+            <label className="form-label">БИН ТОО<input className="form-input" inputMode="numeric" value={companyBin} maxLength={12} onChange={(event) => setCompanyBin(event.target.value.replace(/\D/g, ''))} placeholder="12 цифр" required /><small>Нужен действительный БИН с правильной контрольной цифрой.</small></label>
             <label className="form-label">Населённый пункт<input className="form-input" value={companyLocation} maxLength={120} onChange={(event) => setCompanyLocation(event.target.value)} required /></label>
           </> : <>
             <label className="form-label">ТОО<select className="form-input" value={companyId} onChange={(event) => setCompanyId(event.target.value)} required><option value="">Выберите ТОО</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name} · {company.location}</option>)}</select>{companies.length === 0 && <small>Пока нет ТОО с владельцем, который может отправить приглашение.</small>}</label>

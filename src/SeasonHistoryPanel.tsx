@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { parseSeasonCsv, type SeasonInput, type SeasonRecord } from './seasons'
+import { readAuthenticatedResponse } from './session'
 
 async function request<T>(path: string, method = 'GET', body?: object): Promise<T> {
   const response = await fetch(path, {
@@ -7,10 +8,7 @@ async function request<T>(path: string, method = 'GET', body?: object): Promise<
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
-  if (response.status === 204) return undefined as T
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || 'Не удалось сохранить историю сезонов')
-  return result as T
+  return readAuthenticatedResponse<T>(response)
 }
 
 export default function SeasonHistoryPanel({ fieldId, fieldName, crop, areaHa, onChanged }: { fieldId?: string; fieldName: string; crop: string; areaHa: number; onChanged: () => void }) {
