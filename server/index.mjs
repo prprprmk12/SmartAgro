@@ -12,6 +12,7 @@ import { hashPassword, verifyPassword } from './passwords.mjs'
 import { migrateRoles } from './roles.mjs'
 import { forecastFromHistory } from './yieldForecast.mjs'
 import { PhotoStorageError, decodePhoto, externalizeFieldPhotos, isPhotoReference, isPhotoValue, photoDataUri, photoStorageConfigured, photoValues, signedPhotoUrl } from './photos.mjs'
+import { analyzePhotoWithOpenAI, VisionProviderError } from './openai-vision.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -22,6 +23,7 @@ const postgresUrl = process.env.DATABASE_URL
 const isProduction = process.env.NODE_ENV === 'production'
 const supportedRegion = 'Акмолинская область'
 const openAiApiKey = process.env.OPENAI_API_KEY
+const openAiVisionApiKey = process.env.OPENAI_VISION_API_KEY || openAiApiKey
 const openAiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 const databaseMode = 'postgresql'
 const fallbackAkmolaBoundary = [[50.45, 68.25], [52.25, 68.25], [52.25, 73.55], [50.45, 73.55]]
@@ -658,6 +660,10 @@ async function start() {
     res.status(204).end()
   })
 
+  app.get('/api/ai/status', requireUser, (_req, res) => {
+    res.json({ visionConfigured: Boolean(openAiVisionApiKey), model: openAiModel, photoStorageConfigured: photoStorageConfigured() })
+  })
+
   app.post('/api/ai/analyze-field', requireUser, async (req, res) => {
     const fieldId = req.body?.field?.id
     if (typeof fieldId !== 'string' || !ObjectId.isValid(fieldId)) return res.status(400).json({ error: 'Сначала сохраните поле, затем загрузите фото для анализа' })
@@ -670,14 +676,9 @@ async function start() {
     if (requested.some((image) => !isPhotoValue(image))) return res.status(400).json({ error: 'Поддерживаются только сохранённые фото поля или JPG, PNG и WEBP' })
     const permitted = new Set(photoValues(field))
     if (requested.some((image) => isPhotoReference(image) && !permitted.has(image))) return res.status(404).json({ error: 'Фото не найдено у этого поля' })
+    if (!photoStorageConfigured() && requested.some(isPhotoReference)) return res.status(503).json({ error: 'Сохранённое фото нельзя прочитать без приватного Storage Bucket. Настройте S3-переменные в Railway.' })
     for (const image of requested) if (!isPhotoReference(image)) decodePhoto(image)
-    if (!openAiApiKey) {
-      return res.json({
-        analysis: 'Demo-режим: фото сохранено у этого поля. Для компьютерного анализа подключите OPENAI_API_KEY на backend. Пока проверьте равномерность всходов, цвет листьев, пропуски и зоны угнетения.',
-        source: 'demo-fallback',
-        confidence: 0.2,
-      })
-    }
+    if (!openAiVisionApiKey) return res.status(503).json({ error: 'Фотоанализ OpenAI не настроен: добавьте OPENAI_API_KEY в Variables backend-сервиса Railway.', code: 'OPENAI_NOT_CONFIGURED' })
     const systemPrompt = `Ты AI-агроном SmartAgro. Анализируй только состояние культуры на фотографиях поля. Не утверждай то, чего нельзя надежно увидеть на снимке, не ставь диагноз и не назначай препараты или дозировки. Сравнивай текущие фото с историей этого же поля, если она передана, и явно отмечай динамику: улучшение, ухудшение или без заметных изменений. Ответь на русском кратко в формате:
 Наблюдения: что видно на фото.
 Риски: возможные признаки стресса, сорняков, болезней или вредителей с пометкой "требует проверки", если уверенность недостаточна.
@@ -687,27 +688,24 @@ async function start() {
     const validImages = await Promise.all(requested.map((image) => isPhotoReference(image) ? photoDataUri(req.user.companyId, field._id, image) : image))
     const content = [
       { type: 'text', text: `Поле: ${JSON.stringify({ name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate })}\nИстория анализов этого же поля: ${JSON.stringify(analysisHistory)}` },
-      ...validImages.map((image) => ({ type: 'image_url', image_url: { url: image, detail: 'low' } })),
+      ...validImages.map((image) => ({ type: 'image_url', image_url: { url: image, detail: 'high' } })),
     ]
     try {
-      const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiApiKey}` },
-        body: JSON.stringify({ model: openAiModel, temperature: 0.2, max_tokens: 700, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] }),
-      })
-      const payload = await openAiResponse.json()
-      if (!openAiResponse.ok) throw new Error(payload?.error?.message || 'OpenAI request failed')
-      const analysis = payload.choices?.[0]?.message?.content?.trim()
-      if (!analysis) throw new Error('Empty OpenAI response')
-      res.json({ analysis, source: 'openai', confidence: 0.8 })
+      res.json(await analyzePhotoWithOpenAI({ apiKey: openAiVisionApiKey, model: openAiModel, systemPrompt, content }))
     } catch (error) {
-      console.error('Field photo analysis failed:', error.message)
-      res.json({
-        analysis: 'AI временно недоступен для компьютерного анализа. Фото сохранено у этого поля. Проверьте равномерность всходов, цвет листьев, пропуски и зоны угнетения, затем повторите анализ позже.',
-        source: 'demo-fallback',
-        confidence: 0.2,
-        warning: 'OpenAI временно недоступен',
-      })
+      const requestId = crypto.randomUUID()
+      if (!(error instanceof VisionProviderError)) {
+        console.error('Photo analysis failed:', { requestId, stage: 'internal', type: error?.name || 'Error' })
+        return res.status(500).json({ error: `Фотоанализ не выполнен. Код запроса: ${requestId}`, requestId })
+      }
+      console.error('Photo analysis failed:', { requestId, stage: error.stage, status: error.status, reason: error.reason })
+      const status = error.status === 429 ? 429 : error.stage === 'network' ? 504 : 502
+      const description = error.status === 401 ? 'OpenAI отклонил ключ OPENAI_API_KEY (HTTP 401). Проверьте ключ в Railway.'
+        : error.status === 403 ? 'У ключа OpenAI нет доступа к выбранной модели (HTTP 403).'
+          : error.status === 429 ? 'OpenAI ограничил запросы или исчерпан доступный лимит (HTTP 429).'
+            : error.status === 400 ? 'OpenAI отклонил модель или изображение (HTTP 400).'
+              : 'OpenAI не смог выполнить фотоанализ.'
+      res.status(status).json({ error: `${description} Причина: ${error.reason}. Код запроса: ${requestId}`, requestId, upstreamStatus: error.status, stage: error.stage })
     }
   })
 

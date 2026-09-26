@@ -46,6 +46,7 @@ type FieldAnalysis = {
   photos: string[]
   analysis: string
   source?: string
+  model?: string
   confidence?: number
 }
 
@@ -1255,6 +1256,9 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
   const [customCrop, setCustomCrop] = useState(() => field && !standardCrops.includes(field.crop) ? field.crop : '')
   const [photoLoading, setPhotoLoading] = useState(false)
   const [photoError, setPhotoError] = useState('')
+  const [visionStatus, setVisionStatus] = useState<'checking' | 'available' | 'unavailable'>(field?.id ? 'checking' : 'unavailable')
+  const [visionMessage, setVisionMessage] = useState(field?.id ? 'Проверяем подключение AI…' : 'Сначала сохраните поле в аккаунте.')
+  const [storageAvailable, setStorageAvailable] = useState(false)
 
   useEffect(() => {
     if (field) {
@@ -1262,6 +1266,26 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
       setCustomCrop(standardCrops.includes(field.crop) ? '' : field.crop)
     }
   }, [field])
+
+  useEffect(() => {
+    if (!field?.id) return
+    let active = true
+    setVisionStatus('checking')
+    fetch('/api/ai/status', { headers: { Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` } })
+      .then((response) => readAuthenticatedResponse<{ visionConfigured: boolean; model: string; photoStorageConfigured: boolean }>(response))
+      .then((status) => {
+        if (!active) return
+        setStorageAvailable(status.photoStorageConfigured)
+        setVisionStatus(status.visionConfigured ? 'available' : 'unavailable')
+        setVisionMessage(!status.visionConfigured ? 'Фотоанализ не настроен. Добавьте OPENAI_API_KEY на backend в Railway.' : !status.photoStorageConfigured ? `Ключ OpenAI указан · ${status.model}. Новые фото можно проанализировать, но для сохранения результата нужен Storage Bucket.` : `Ключ OpenAI указан · модель ${status.model}. Доступ будет проверен при анализе.`)
+      })
+      .catch((cause) => {
+        if (!active || cause instanceof SessionExpiredError) return
+        setVisionStatus('unavailable')
+        setVisionMessage(cause instanceof Error ? cause.message : 'Не удалось проверить AI-сервис')
+      })
+    return () => { active = false }
+  }, [field?.id])
 
   const updateField = (key: keyof FieldRecord, value: string | number | [number, number] | [number, number][]) => {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -1306,8 +1330,9 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
   }
 
   const analyzePhotos = async () => {
-    const photos = draft.fieldPhotos ?? []
+    const photos = storageAvailable ? draft.fieldPhotos ?? [] : (draft.fieldPhotos ?? []).filter((photo) => photo.startsWith('data:image/'))
     if (!draft.id || !localStorage.getItem('smartagro-token')) { setPhotoError('Сначала сохраните поле в аккаунте, затем откройте его для анализа фото'); return }
+    if (visionStatus !== 'available') { setPhotoError(visionMessage); return }
     if (!photos.length) {
       setPhotoError('Сначала загрузите хотя бы одно фото поля')
       return
@@ -1323,16 +1348,17 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
           images: photos,
         }),
       })
-      const result = await readAuthenticatedResponse<{ analysis: string; source?: string; confidence?: number }>(response)
+      const result = await readAuthenticatedResponse<{ analysis: string; source?: string; model?: string }>(response)
       const entry: FieldAnalysis = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         photos,
         analysis: result.analysis,
         source: result.source,
-        confidence: result.confidence,
+        model: result.model,
       }
       setDraft((current) => ({ ...current, photoAnalysis: result.analysis, analysisHistory: [...(current.analysisHistory ?? []), entry] }))
+      if (!storageAvailable) setPhotoError('Вывод получен, но его нельзя сохранить в истории до настройки Storage Bucket. Скопируйте текст или настройте bucket перед сохранением поля.')
     } catch (analysisError) {
       setPhotoError(analysisError instanceof Error ? analysisError.message : 'Ошибка анализа фото')
     } finally {
@@ -1429,11 +1455,11 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
         {draft.crop === 'Другая культура' && <label className="form-label">Название культуры<input className="form-input" value={customCrop} onChange={(event) => setCustomCrop(event.target.value)} placeholder="Например, Горох" /></label>}
         <label className="form-label">Дата сева<input type="date" className="form-input" value={draft.sowingDate} onChange={(event) => updateField('sowingDate', event.target.value)} /></label>
         <div className="field-photo-box">
-          <div><strong>Фото поля для AI-анализа</strong><small>Загрузите до 5 снимков этого поля. AI-анализ доступен после сохранения поля в аккаунте.</small></div>
+          <div><strong>Фото поля для AI-анализа</strong><small>Загрузите до 5 снимков этого поля. AI-анализ доступен после сохранения поля в аккаунте.</small><small>{visionMessage}</small></div>
           <input className="form-input" type="file" accept="image/*" multiple onChange={(event) => addPhotos(event.target.files)} />
           {!!draft.fieldPhotos?.length && <div className="field-photo-preview">{draft.fieldPhotos.map((photo, index) => <div key={`${photo.slice(0, 24)}-${index}`}><ProtectedPhoto fieldId={draft.id} photo={photo} alt={`Фото поля ${index + 1}`} /><button type="button" onClick={() => setDraft((current) => ({ ...current, fieldPhotos: current.fieldPhotos?.filter((_, photoIndex) => photoIndex !== index) }))}>×</button></div>)}</div>}
-          <button type="button" className="outline-button" onClick={analyzePhotos} disabled={photoLoading || !draft.id || !draft.fieldPhotos?.length}>{photoLoading ? 'AI анализирует фото…' : '✦ Проанализировать фото'}</button>
-          {draft.photoAnalysis && <div className="field-photo-analysis"><b>Вывод AI</b><p>{draft.photoAnalysis}</p></div>}
+          <button type="button" className="outline-button" onClick={analyzePhotos} disabled={photoLoading || visionStatus !== 'available' || !draft.id || !(storageAvailable ? draft.fieldPhotos?.length : draft.fieldPhotos?.some((photo) => photo.startsWith('data:image/')))}>{photoLoading ? 'AI анализирует фото…' : '✦ Проанализировать фото'}</button>
+          {draft.photoAnalysis && <div className="field-photo-analysis"><b>Последний успешный вывод AI</b><p>{draft.photoAnalysis}</p><small>Сохраните изменения поля, чтобы записать результат и снимки в историю.</small></div>}
           {photoError && <small className="setup-error">{photoError}</small>}
         </div>
         <div className="field-editor-map">

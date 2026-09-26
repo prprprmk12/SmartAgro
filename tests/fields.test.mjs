@@ -18,6 +18,8 @@ let cdseGeometry = null
 let cdseEvalscript = ''
 let failCdseToken = true
 let failCdseStatistics = false
+let openAiVisionStatus = 200
+let receivedVision = null
 const storedPhotos = new Map()
 let photoUploads = 0
 const weatherServer = createHttpServer((req, res) => {
@@ -30,6 +32,17 @@ const weatherServer = createHttpServer((req, res) => {
     } else if (req.method === 'GET' && storedPhotos.has(url.pathname)) {
       res.writeHead(200, { 'Content-Type': 'image/png' }).end(storedPhotos.get(url.pathname))
     } else res.writeHead(404).end()
+    return
+  }
+  if (url.pathname === '/openai/vision') {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(chunk))
+    req.on('end', () => {
+      receivedVision = JSON.parse(Buffer.concat(chunks).toString())
+      res.setHeader('Content-Type', 'application/json')
+      if (openAiVisionStatus !== 200) { res.writeHead(openAiVisionStatus).end(JSON.stringify({ error: { message: openAiVisionStatus === 401 ? 'Incorrect API key provided: mock-openai-key' : openAiVisionStatus === 429 ? 'Rate limit exceeded' : 'The model does not support image inputs' } })); return }
+      res.end(JSON.stringify({ model: 'gpt-4o-mini', choices: [{ finish_reason: 'stop', message: { content: 'Наблюдения: листья видны на фото. Следующий шаг: осмотреть поле.' } }] }))
+    })
     return
   }
   if (url.pathname === '/token') {
@@ -66,7 +79,7 @@ await once(weatherServer, 'listening')
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics`, S3_ENDPOINT: `http://127.0.0.1:${weatherServer.address().port}`, S3_REGION: 'us-east-1', S3_BUCKET: 'photos-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test-secret', S3_FORCE_PATH_STYLE: 'true' },
+  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', OPENAI_VISION_API_KEY: 'mock-openai-key', OPENAI_VISION_TEST_URL: `http://127.0.0.1:${weatherServer.address().port}/openai/vision`, DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics`, S3_ENDPOINT: `http://127.0.0.1:${weatherServer.address().port}`, S3_REGION: 'us-east-1', S3_BUCKET: 'photos-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test-secret', S3_FORCE_PATH_STYLE: 'true' },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -246,7 +259,29 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.match(historyChat.data.answer, /не доверительный интервал/)
     assert.equal((await request('/api/ai/analyze-field', 'POST', undefined, { field: { id: created.data.id }, images: [reference] })).status, 401)
     assert.equal((await request('/api/ai/analyze-field', 'POST', second.token, { field: { id: created.data.id }, images: [reference] })).status, 404)
-    assert.equal((await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })).status, 200)
+    assert.equal((await request('/api/ai/status', 'GET', first.token)).data.visionConfigured, true)
+    const photoAnalysis = await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })
+    assert.equal(photoAnalysis.status, 200)
+    assert.equal(photoAnalysis.data.source, 'openai')
+    assert.match(photoAnalysis.data.analysis, /Наблюдения/)
+    assert.equal(receivedVision.model, 'gpt-4o-mini')
+    assert.equal(receivedVision.messages[1].content[1].image_url.detail, 'high')
+    assert.equal(receivedVision.messages[1].content[1].image_url.url, image)
+    openAiVisionStatus = 401
+    const invalidOpenAiKey = await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })
+    assert.equal(invalidOpenAiKey.status, 502)
+    assert.match(invalidOpenAiKey.data.error, /OPENAI_API_KEY/)
+    assert.doesNotMatch(JSON.stringify(invalidOpenAiKey.data), /mock-openai-key/)
+    assert.equal((await request('/api/fields', 'GET', first.token)).status, 200)
+    openAiVisionStatus = 429
+    const limitedOpenAi = await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })
+    assert.equal(limitedOpenAi.status, 429)
+    assert.equal(limitedOpenAi.data.analysis, undefined)
+    openAiVisionStatus = 400
+    const badModel = await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })
+    assert.equal(badModel.status, 502)
+    assert.match(badModel.data.error, /модель|model/i)
+    openAiVisionStatus = 200
     const updated = await request(`/api/fields/${created.data.id}`, 'PUT', first.token, { ...field, fuelPricePerL: 22 })
     assert.equal(updated.status, 200)
     const login = await request('/api/auth/login', 'POST', undefined, { email: first.email, password: 'test-password' })

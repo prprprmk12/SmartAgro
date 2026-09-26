@@ -81,6 +81,16 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     const baseTiles = topographicMode ? topographicTiles() : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19, attribution: 'Imagery &copy; Esri, Vantor, Earthstar Geographics, GIS User Community',
     })
+    // Transparent place-name tiles: satellite imagery itself does not contain city labels.
+    const placeLabels = topographicMode ? null : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      zIndex: 250,
+      attribution: 'Места и границы &copy; Esri, HERE, Garmin, <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, GIS User Community',
+    })
+    let labelFailures = 0
+    placeLabels?.on('tileerror', () => {
+      if (!fallbackAdded && ++labelFailures === 3) setTileWarning('Подписи городов временно недоступны; спутниковая карта остаётся доступной.')
+    })
     baseTiles.on('tileerror', () => {
       if (++tileFailures < 3 || fallbackAdded) return
       fallbackAdded = true
@@ -98,9 +108,11 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
       }
       fallbackTiles.addTo(map)
       fallbackTiles.bringToBack()
+      placeLabels?.remove()
       baseTiles.remove()
       setTileWarning(topographicMode ? 'Топографическая подложка недоступна; показана стандартная OpenStreetMap.' : 'Спутниковая подложка недоступна; показана топографическая OpenTopoMap.')
     }).addTo(map)
+    placeLabels?.addTo(map)
 
     let regionBoundaries: Point[][] = [fallbackRegion]
     const regionLayer = L.layerGroup().addTo(map)
