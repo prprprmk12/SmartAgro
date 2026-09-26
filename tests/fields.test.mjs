@@ -54,7 +54,7 @@ await once(weatherServer, 'listening')
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', DATABASE_URL: '', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics` },
+  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics` },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -71,12 +71,12 @@ async function request(path, method = 'GET', token, body) {
 }
 
 async function waitForServer() {
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 900; i++) {
     if (server.exitCode !== null) throw new Error(`API exited before it became ready: ${serverOutput}`)
     try {
       const health = await request('/api/health')
       if (health.status === 200) return
-    } catch { /* MongoDB fallback can take a few seconds */ }
+    } catch { /* In-memory PostgreSQL test engine may take a few seconds to start. */ }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(`API did not become ready: ${serverOutput}`)
@@ -89,10 +89,22 @@ function validBin(prefix) {
   return `${prefix}${first < 10 ? first : checksum([3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2])}`
 }
 
-test('authenticated companies isolate fields and roles; invitations and sessions enforce access', { timeout: 60000 }, async () => {
+test('authenticated companies isolate fields and roles; invitations and sessions enforce access', { timeout: 120000 }, async () => {
   try {
     await waitForServer()
-    assert.ok((await request('/api/companies')).data.some((item) => item.ownerRegistered === false))
+    assert.deepEqual((await request('/api/companies')).data, [])
+    const health = await request('/api/health')
+    assert.equal(health.data.mode, 'postgresql')
+    assert.deepEqual(health.data.collections, { users: 0, companies: 0 })
+    const blankRegistration = { name: 'First owner', email: `new-${crypto.randomUUID()}@example.test`, password: 'test-password', companyName: 'New farm', companyLocation: 'Kokshetau', region: 'Акмолинская область' }
+    assert.equal((await request('/api/auth/register', 'POST', undefined, { ...blankRegistration, password: 'short' })).status, 400)
+    const invalidBin = await request('/api/auth/register', 'POST', undefined, { ...blankRegistration, companyBin: '123' })
+    assert.equal(invalidBin.status, 400)
+    assert.match(invalidBin.data.error, /БИН/)
+    const noBin = await request('/api/auth/register', 'POST', undefined, blankRegistration)
+    assert.equal(noBin.status, 201)
+    assert.equal(noBin.data.user.role, 'owner')
+    assert.equal((await request('/api/auth/login', 'POST', undefined, { email: 'old-account@example.test', password: 'old-password' })).status, 401)
     const register = async (binPrefix) => {
       const email = `field-${crypto.randomUUID()}@example.test`
       const response = await request('/api/auth/register', 'POST', undefined, { name: 'Owner', email, password: 'test-password', companyName: `Farm ${binPrefix}`, companyBin: validBin(binPrefix), companyLocation: 'Kokshetau', region: 'Акмолинская область' })

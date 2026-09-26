@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PGlite } from '@electric-sql/pglite'
-import { ObjectId } from '../server/object-id.mjs'
+import { RecordId as ObjectId } from '../server/record-id.mjs'
 import { createPostgresDatabase, initializePostgres } from '../server/postgres.mjs'
 
 test('PostgreSQL JSONB storage retains IDs, dates, tenant queries and uniqueness', { timeout: 90000 }, async () => {

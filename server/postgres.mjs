@@ -1,5 +1,5 @@
 import pg from 'pg'
-import { ObjectId } from './object-id.mjs'
+import { RecordId as ObjectId } from './record-id.mjs'
 
 const { Pool } = pg
 const table = 'smartagro_documents'
@@ -152,7 +152,16 @@ export function createPostgresDatabase(pool) {
   }
 }
 
-export function makePostgresPool(connectionString) {
+export async function makePostgresPool(connectionString) {
+  if (process.env.NODE_ENV === 'test' && connectionString === 'pglite://test') {
+    const { PGlite } = await import('@electric-sql/pglite')
+    const engine = new PGlite()
+    return {
+      query: (text, values) => engine.query(text, values),
+      async connect() { return { query: (text, values) => engine.query(text, values), release() {} } },
+      end: () => engine.close(),
+    }
+  }
   const pool = new Pool({ connectionString, max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 })
   pool.on('error', (error) => console.error('PostgreSQL idle connection failed:', error.message))
   return pool

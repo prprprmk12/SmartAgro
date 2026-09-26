@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import crypto from 'node:crypto'
 import express from 'express'
-import { ObjectId } from './object-id.mjs'
+import { RecordId as ObjectId } from './record-id.mjs'
 import { makePostgresPool, initializePostgres, createPostgresDatabase } from './postgres.mjs'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -22,113 +22,9 @@ const isProduction = process.env.NODE_ENV === 'production'
 const supportedRegion = 'Акмолинская область'
 const openAiApiKey = process.env.OPENAI_API_KEY
 const openAiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini'
-let databaseMode = 'postgresql'
+const databaseMode = 'postgresql'
 const fallbackAkmolaBoundary = [[50.45, 68.25], [52.25, 68.25], [52.25, 73.55], [50.45, 73.55]]
 let akmolaBoundaryPromise
-
-const matchValue = (left, right) => {
-  if (left instanceof ObjectId && right instanceof ObjectId) return left.toString() === right.toString()
-  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime()
-  if (right && typeof right === 'object' && !Array.isArray(right) && '$exists' in right) return (left !== undefined) === right.$exists
-  if (right && typeof right === 'object' && !Array.isArray(right) && '$in' in right) return right.$in.some((value) => matchValue(left, value))
-  if (right && typeof right === 'object' && !Array.isArray(right) && '$gte' in right) return left !== undefined && left >= right.$gte
-  if (right && typeof right === 'object' && !Array.isArray(right) && '$gt' in right) return left !== undefined && left > right.$gt
-  return left === right
-}
-
-const matchesFilter = (document, filter = {}) => Object.entries(filter).every(([key, value]) => {
-  if (value && typeof value === 'object' && !Array.isArray(value) && '$exists' in value) return matchValue(document[key], value)
-  if (value && typeof value === 'object' && !Array.isArray(value) && '$in' in value) return matchValue(document[key], value)
-  return matchValue(document[key], value)
-})
-
-const createMemoryCollection = (name) => {
-  const items = []
-  return {
-    async countDocuments(filter = {}) {
-      return items.filter((item) => matchesFilter(item, filter)).length
-    },
-    async updateMany(filter, update) {
-      const matches = items.filter((item) => matchesFilter(item, filter))
-      const set = update?.$set ?? {}
-      matches.forEach((item) => Object.assign(item, set))
-      return { acknowledged: true, matchedCount: matches.length, modifiedCount: matches.length }
-    },
-    async updateOne(filter, update) {
-      const item = items.find((entry) => matchesFilter(entry, filter))
-      if (!item) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 }
-      Object.assign(item, update?.$set ?? {})
-      return { acknowledged: true, matchedCount: 1, modifiedCount: 1 }
-    },
-    async deleteOne(filter) {
-      const index = items.findIndex((entry) => matchesFilter(entry, filter))
-      if (index === -1) return { acknowledged: true, deletedCount: 0 }
-      items.splice(index, 1)
-      return { acknowledged: true, deletedCount: 1 }
-    },
-    async deleteMany(filter) {
-      let deletedCount = 0
-      for (let index = items.length - 1; index >= 0; index--) {
-        if (!matchesFilter(items[index], filter)) continue
-        items.splice(index, 1)
-        deletedCount++
-      }
-      return { acknowledged: true, deletedCount }
-    },
-    async insertMany(docs) {
-      const insertedIds = []
-      docs.forEach((doc) => {
-        const item = { ...doc, _id: doc._id ?? new ObjectId() }
-        insertedIds.push(item._id)
-        items.push(item)
-      })
-      return { insertedIds }
-    },
-    async insertOne(doc) {
-      const item = { ...doc, _id: doc._id ?? new ObjectId() }
-      items.push(item)
-      return { insertedId: item._id }
-    },
-    find(filter = {}) {
-      const filtered = items.filter((item) => matchesFilter(item, filter))
-      const cursor = {
-        sort(spec = {}) {
-          const entries = Object.entries(spec)
-          filtered.sort((left, right) => {
-            for (const [key, direction] of entries) {
-              const leftValue = left[key]
-              const rightValue = right[key]
-              if (leftValue === rightValue) continue
-              return (leftValue > rightValue ? 1 : -1) * (direction === -1 ? -1 : 1)
-            }
-            return 0
-          })
-          return cursor
-        },
-        async toArray() {
-          return [...filtered]
-        },
-      }
-      return cursor
-    },
-    async findOne(filter = {}) {
-      return items.find((item) => matchesFilter(item, filter)) ?? null
-    },
-  }
-}
-
-const createMemoryDb = () => {
-  const collections = new Map()
-  return {
-    collection: (name) => {
-      if (!collections.has(name)) collections.set(name, createMemoryCollection(name))
-      return collections.get(name)
-    },
-    async command() {
-      return { ok: 1 }
-    },
-  }
-}
 
 app.use(express.json({ limit: '35mb' }))
 
@@ -241,46 +137,26 @@ async function fallbackAiAnswer(message, observations = [], forecast = null) {
   return 'Проверенной модели климатических рисков и прогноза урожая пока нет. Проверьте исходные данные выбранного поля и дату прогноза погоды перед решением о работах.'
 }
 
-async function seedDatabase(db) {
-  const companies = db.collection('companies')
-  await companies.updateMany({ region: { $exists: false } }, { $set: { region: supportedRegion } })
-  if (await companies.countDocuments() > 0) return
-  const seedCompanies = [
-    { name: 'ТОО «Дала Агро»', region: supportedRegion, location: 'Целиноградский район' },
-    { name: 'ТОО «Акмола Егін»', region: supportedRegion, location: 'Астраханский район' },
-    { name: 'ТОО «Есиль Фарм»', region: supportedRegion, location: 'Есильский район' },
-  ]
-  const result = await companies.insertMany(seedCompanies.map((company) => ({ ...company, createdAt: new Date() })))
-}
-
 async function ensureDatabaseConnection() {
-  if (!postgresUrl && !isProduction) {
-    databaseMode = 'in-memory'
-    return createMemoryDb()
-  }
-  const pool = makePostgresPool(postgresUrl)
+  const pool = await makePostgresPool(postgresUrl)
   try {
     await pool.query('SELECT 1')
     await initializePostgres(pool)
     return createPostgresDatabase(pool)
   } catch (error) {
     await pool.end()
-    if (isProduction) throw error
-    console.warn('PostgreSQL connection failed, using in-memory fallback:', error.message)
-    databaseMode = 'in-memory'
-    return createMemoryDb()
+    throw error
   }
 }
 
 async function start() {
-  if (isProduction && !postgresUrl) {
-    throw new Error('Set DATABASE_URL before starting in production')
+  if (!postgresUrl) {
+    throw new Error('Set DATABASE_URL to PostgreSQL before starting the API')
   }
   if (isProduction && !existsSync(join(distPath, 'index.html'))) {
     throw new Error('Frontend build not found: run npm run build before starting in production')
   }
   const db = await ensureDatabaseConnection()
-  await seedDatabase(db)
   const users = db.collection('users')
   const companies = db.collection('companies')
   const fields = db.collection('fields')
@@ -293,16 +169,6 @@ async function start() {
   const invitations = db.collection('invitations')
   const weatherSnapshots = db.collection('weatherSnapshots')
   const weatherCache = new Map()
-  if (users.createIndex) await users.createIndex({ email: 1 }, { unique: true })
-  if (companies.createIndex) await companies.createIndex({ bin: 1 }, { unique: true, sparse: true })
-  if (fields.createIndex) await fields.createIndex({ companyId: 1, name: 1 }, { unique: true })
-  if (seasons.createIndex) await seasons.createIndex({ companyId: 1, fieldId: 1, year: 1, cropKey: 1 }, { unique: true })
-  if (tasks.createIndex) await tasks.createIndex({ companyId: 1, fieldId: 1, status: 1, dueDate: 1 })
-  if (indexMeasurements.createIndex) await indexMeasurements.createIndex({ companyId: 1, fieldId: 1, index: 1, date: 1, source: 1 }, { unique: true })
-  if (cdseSyncs.createIndex) await cdseSyncs.createIndex({ companyId: 1, fieldId: 1 }, { unique: true })
-  if (sessions.createIndex) await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
-  if (invitations.createIndex) await invitations.createIndex({ tokenHash: 1 }, { unique: true })
-  if (invitations.createIndex) await invitations.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
   await migrateRoles(users)
   const createSession = async (user) => {
     const token = crypto.randomBytes(32).toString('hex')
@@ -638,7 +504,9 @@ async function start() {
 
   app.post('/api/auth/register', async (req, res) => {
     const { name, email, password, companyId, companyName, companyBin, companyLocation, region, invitationCode } = req.body ?? {}
-    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 || !validEmail(email) || typeof password !== 'string' || password.length < 10 || password.length > 256 || !region) return res.status(400).json({ error: 'Укажите имя, рабочий email и пароль длиной от 10 символов' })
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) return res.status(400).json({ error: 'Укажите имя длиной до 120 символов' })
+    if (!validEmail(email)) return res.status(400).json({ error: 'Укажите корректный рабочий email' })
+    if (typeof password !== 'string' || password.length < 10 || password.length > 256) return res.status(400).json({ error: 'Пароль должен содержать от 10 до 256 символов' })
     if (region !== supportedRegion) return res.status(400).json({ error: 'Сейчас доступна только Акмолинская область' })
     const normalizedEmail = email.trim().toLowerCase()
     if (await users.findOne({ email: normalizedEmail })) return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' })
@@ -658,14 +526,16 @@ async function start() {
       const normalizedBin = String(companyBin || '').replace(/\s/g, '')
       const normalizedCompanyName = String(companyName || '').trim()
       const normalizedLocation = String(companyLocation || '').trim()
-      if (!normalizedCompanyName || normalizedCompanyName.length > 120 || !normalizedLocation || normalizedLocation.length > 120 || !isValidBin(normalizedBin)) return res.status(400).json({ error: 'Укажите название, населённый пункт и корректный 12-значный БИН ТОО' })
-      if (await companies.findOne({ bin: normalizedBin })) return res.status(409).json({ error: 'ТОО с таким БИН уже зарегистрировано. Выберите его из списка.' })
+      if (!normalizedCompanyName || normalizedCompanyName.length > 120) return res.status(400).json({ error: 'Укажите название хозяйства длиной до 120 символов' })
+      if (!normalizedLocation || normalizedLocation.length > 120) return res.status(400).json({ error: 'Укажите населённый пункт хозяйства' })
+      if (normalizedBin && (!isValidBin(normalizedBin) || !/[1-9]/.test(normalizedBin))) return res.status(400).json({ error: 'БИН указан неверно: проверьте 12 цифр и контрольную цифру либо оставьте поле пустым' })
+      if (normalizedBin && await companies.findOne({ bin: normalizedBin })) return res.status(409).json({ error: 'Хозяйство с таким БИН уже зарегистрировано. Запросите приглашение владельца.' })
       try {
-        const companyResult = await companies.insertOne({ name: normalizedCompanyName, bin: normalizedBin, region, location: normalizedLocation, fields: [], createdAt: new Date() })
+        const companyResult = await companies.insertOne({ name: normalizedCompanyName, ...(normalizedBin ? { bin: normalizedBin } : {}), region, location: normalizedLocation, fields: [], createdAt: new Date() })
         createdCompanyId = companyResult.insertedId
         company = { _id: createdCompanyId, name: normalizedCompanyName, region, location: normalizedLocation, fields: [] }
       } catch (error) {
-        if (error.code === 11000) return res.status(409).json({ error: 'ТОО с таким БИН уже зарегистрировано' })
+        if (error.code === 11000) return res.status(409).json({ error: 'Хозяйство с таким БИН уже зарегистрировано' })
         throw error
       }
     }
