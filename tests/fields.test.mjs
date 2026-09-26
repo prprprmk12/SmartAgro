@@ -18,8 +18,20 @@ let cdseGeometry = null
 let cdseEvalscript = ''
 let failCdseToken = true
 let failCdseStatistics = false
+const storedPhotos = new Map()
+let photoUploads = 0
 const weatherServer = createHttpServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
+  if (url.pathname.startsWith('/photos-test/fields/')) {
+    if (req.method === 'PUT') {
+      const chunks = []
+      req.on('data', (chunk) => chunks.push(chunk))
+      req.on('end', () => { storedPhotos.set(url.pathname, Buffer.concat(chunks)); photoUploads++; res.writeHead(200, { ETag: '"test"' }).end() })
+    } else if (req.method === 'GET' && storedPhotos.has(url.pathname)) {
+      res.writeHead(200, { 'Content-Type': 'image/png' }).end(storedPhotos.get(url.pathname))
+    } else res.writeHead(404).end()
+    return
+  }
   if (url.pathname === '/token') {
     res.setHeader('Content-Type', 'application/json')
     if (failCdseToken) { res.writeHead(401).end(JSON.stringify({ error: 'invalid_client', error_description: 'client_secret=mock-secret rejected' })); return }
@@ -54,7 +66,7 @@ await once(weatherServer, 'listening')
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics` },
+  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics`, S3_ENDPOINT: `http://127.0.0.1:${weatherServer.address().port}`, S3_REGION: 'us-east-1', S3_BUCKET: 'photos-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test-secret', S3_FORCE_PATH_STYLE: 'true' },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -167,6 +179,25 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.equal((await request('/api/fields')).status, 401)
     const created = await request('/api/fields', 'POST', first.token, field)
     assert.equal(created.status, 201)
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/7b8AAAAASUVORK5CYII=', 'base64')
+    const image = `data:image/png;base64,${png.toString('base64')}`
+    const analysis = { id: 'analysis-1', createdAt: new Date().toISOString(), photos: [image], analysis: 'Inspect the field' }
+    const withPhotos = await request(`/api/fields/${created.data.id}`, 'PUT', first.token, { ...field, fieldPhotos: [image], analysisHistory: [analysis] })
+    assert.equal(withPhotos.status, 200)
+    const reference = withPhotos.data.fieldPhotos[0]
+    assert.match(reference, /^asset:[a-f0-9]{64}\.png$/)
+    assert.equal(withPhotos.data.analysisHistory[0].photos[0], reference)
+    assert.equal(photoUploads, 1)
+    assert.doesNotMatch(JSON.stringify(withPhotos.data), /data:image\/png;base64/)
+    const linkedPhoto = await request(`/api/fields/${created.data.id}/photos/${encodeURIComponent(reference)}/link`, 'GET', first.token)
+    assert.equal(linkedPhoto.status, 200)
+    assert.deepEqual(Buffer.from(await (await fetch(linkedPhoto.data.url)).arrayBuffer()), png)
+    assert.equal((await request(`/api/fields/${created.data.id}/photos/${encodeURIComponent(reference)}/link`, 'GET', second.token)).status, 404)
+    const secondSave = await request(`/api/fields/${created.data.id}`, 'PUT', first.token, { ...field, fieldPhotos: [reference], analysisHistory: [{ ...analysis, photos: [reference] }] })
+    assert.equal(secondSave.status, 200)
+    assert.equal(photoUploads, 1)
+    assert.equal((await request('/api/photos/migrate', 'POST', reenabled.data.token)).status, 403)
+    assert.deepEqual((await request('/api/photos/migrate', 'POST', first.token)).data, { migratedFields: 0, migratedReferences: 0 })
     const seasonPath = `/api/fields/${created.data.id}/seasons`
     const history = { year: 2023, crop: 'Wheat', plantedAreaHa: 30, harvestTotalT: 55, source: 'Farm harvest log' }
     assert.equal((await request(seasonPath, 'GET')).status, 401)
@@ -213,9 +244,9 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.match(historyChat.data.answer, /Farm harvest log/)
     assert.match(historyChat.data.answer, /медиана 2\.67/)
     assert.match(historyChat.data.answer, /не доверительный интервал/)
-    assert.equal((await request('/api/ai/analyze-field', 'POST', undefined, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 401)
-    assert.equal((await request('/api/ai/analyze-field', 'POST', second.token, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 404)
-    assert.equal((await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: ['data:image/png;base64,YQ=='] })).status, 200)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', undefined, { field: { id: created.data.id }, images: [reference] })).status, 401)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', second.token, { field: { id: created.data.id }, images: [reference] })).status, 404)
+    assert.equal((await request('/api/ai/analyze-field', 'POST', first.token, { field: { id: created.data.id }, images: [reference] })).status, 200)
     const updated = await request(`/api/fields/${created.data.id}`, 'PUT', first.token, { ...field, fuelPricePerL: 22 })
     assert.equal(updated.status, 200)
     const login = await request('/api/auth/login', 'POST', undefined, { email: first.email, password: 'test-password' })

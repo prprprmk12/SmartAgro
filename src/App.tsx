@@ -7,6 +7,9 @@ import TeamPanel from './TeamPanel'
 import SeasonHistoryPanel from './SeasonHistoryPanel'
 import type { SeasonRecord } from './seasons'
 import type { ForecastResult } from './forecast'
+import ProtectedPhoto from './ProtectedPhoto'
+import FieldInfoPanel from './FieldInfoPanel'
+import PhotoMigrationPanel from './PhotoMigrationPanel'
 import { readAuthenticatedResponse, SessionExpiredError } from './session'
 
 type FieldRecord = {
@@ -328,6 +331,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [teamOpen, setTeamOpen] = useState(false)
+  const [photoMigrationOpen, setPhotoMigrationOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [weather, setWeather] = useState<WeatherForecast | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
@@ -355,6 +359,7 @@ function App() {
       setChatOpen(false)
       setProfileOpen(false)
       setTeamOpen(false)
+      setPhotoMigrationOpen(false)
       setReportOpen(false)
       setImportOpen(false)
     }
@@ -540,6 +545,7 @@ function App() {
     setFieldRecords([])
     setProfileOpen(false)
     setTeamOpen(false)
+    setPhotoMigrationOpen(false)
     setAuthenticated(false)
   }
 
@@ -915,8 +921,9 @@ function App() {
       </main>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={() => setSettingsOpen(false)} />}
-      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} role={currentUser?.role || 'agronomist'} onClose={() => setProfileOpen(false)} onManageTeam={() => { setProfileOpen(false); setTeamOpen(true) }} onLogout={logout} />}
+      {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} role={currentUser?.role || 'agronomist'} onClose={() => setProfileOpen(false)} onManageTeam={() => { setProfileOpen(false); setTeamOpen(true) }} onManagePhotos={() => { setProfileOpen(false); setPhotoMigrationOpen(true) }} onLogout={logout} />}
       {teamOpen && currentUser?.role === 'owner' && <TeamPanel company={selectedCompany.name} currentUserId={currentUser.id} onClose={() => setTeamOpen(false)} />}
+      {photoMigrationOpen && currentUser?.role === 'owner' && <PhotoMigrationPanel onClose={() => setPhotoMigrationOpen(false)} onComplete={() => void loadFields()} />}
       {reportOpen && <ReportPanel company={selectedCompany.name} field={selectedField} weather={weather} tasks={tasks} tasksError={tasksError} onClose={() => setReportOpen(false)} />}
       {importOpen && selectedField.id && <IndexImportPanel key={selectedField.id} fieldId={selectedField.id} fieldName={selectedField.name} onClose={() => setImportOpen(false)} onImported={(index) => { setLayer(index.toUpperCase()); setIndexRefresh((value) => value + 1); setImportOpen(false) }} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
@@ -933,7 +940,7 @@ function SettingsPanel({ onClose, onSave }: { onClose: () => void; onSave: () =>
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">НАСТРОЙКИ</p><h2>Рабочая среда</h2><p>Настройте уведомления и формат данных для dashboard.</p><label className="setting-row"><span><b>Уведомления о рисках</b><small>Засуха, суховей, снег и погодные окна</small></span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><label className="form-label">Единицы измерения<select className="form-input" value={units} onChange={(event) => setUnits(event.target.value)}><option>Метрические</option><option>Имперские</option></select></label><div className="settings-source"><span className="status-dot" /><div><b>Источники подключены</b><small>PostgreSQL · Open-Meteo · карты Esri/OpenTopoMap</small></div></div><button className="dark-button" onClick={saveSettings}>Сохранить настройки <span>✓</span></button></div></div>
 }
 
-function ProfilePanel({ name, company, role, onClose, onLogout, onManageTeam }: { name: string; company: string; role: 'owner' | 'agronomist'; onClose: () => void; onLogout: () => Promise<void>; onManageTeam: () => void }) {
+function ProfilePanel({ name, company, role, onClose, onLogout, onManageTeam, onManagePhotos }: { name: string; company: string; role: 'owner' | 'agronomist'; onClose: () => void; onLogout: () => Promise<void>; onManageTeam: () => void; onManagePhotos: () => void }) {
   const [error, setError] = useState('')
   const [leaving, setLeaving] = useState(false)
   const leave = async () => {
@@ -941,7 +948,7 @@ function ProfilePanel({ name, company, role, onClose, onLogout, onManageTeam }: 
     setError('')
     try { await onLogout() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось выйти'); setLeaving(false) }
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">ПРОФИЛЬ</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>{role === 'owner' ? 'Владелец ТОО' : 'Агроном'}</b></span></div>{role === 'owner' && <button className="outline-button profile-button" onClick={onManageTeam}>Сотрудники и приглашения</button>}{error && <p className="form-error" role="alert">{error}</p>}<button className="outline-button profile-button" onClick={() => void leave()} disabled={leaving}>{leaving ? 'Выходим…' : 'Выйти из аккаунта'}</button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">ПРОФИЛЬ</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>{role === 'owner' ? 'Владелец ТОО' : 'Агроном'}</b></span></div>{role === 'owner' && <><button className="outline-button profile-button" onClick={onManageTeam}>Сотрудники и приглашения</button><button className="outline-button profile-button" onClick={onManagePhotos}>Перенести старые фото</button></>}{error && <p className="form-error" role="alert">{error}</p>}<button className="outline-button profile-button" onClick={() => void leave()} disabled={leaving}>{leaving ? 'Выходим…' : 'Выйти из аккаунта'}</button></div></div>
 }
 
 function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { company: string; field: FieldRecord; weather: WeatherForecast | null; tasks: FieldTask[]; tasksError: string; onClose: () => void }) {
@@ -1015,7 +1022,7 @@ function IndexImportPanel({ fieldId, fieldName, onClose, onImported }: { fieldId
 }
 
 
-function FieldInfoPanel({ field, onClose }: { field: FieldRecord; onClose: () => void }) {
+function LegacyFieldInfoPanel({ field, onClose }: { field: FieldRecord; onClose: () => void }) {
   const history = [...(field.analysisHistory ?? [])].reverse()
   const [viewer, setViewer] = useState<{ photos: string[]; index: number; title: string } | null>(null)
   const openViewer = (photos: string[], index: number, title: string) => setViewer({ photos, index, title })
@@ -1424,7 +1431,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
         <div className="field-photo-box">
           <div><strong>Фото поля для AI-анализа</strong><small>Загрузите до 5 снимков этого поля. AI-анализ доступен после сохранения поля в аккаунте.</small></div>
           <input className="form-input" type="file" accept="image/*" multiple onChange={(event) => addPhotos(event.target.files)} />
-          {!!draft.fieldPhotos?.length && <div className="field-photo-preview">{draft.fieldPhotos.map((photo, index) => <div key={`${photo.slice(0, 24)}-${index}`}><img src={photo} alt={`Фото поля ${index + 1}`} /><button type="button" onClick={() => setDraft((current) => ({ ...current, fieldPhotos: current.fieldPhotos?.filter((_, photoIndex) => photoIndex !== index) }))}>×</button></div>)}</div>}
+          {!!draft.fieldPhotos?.length && <div className="field-photo-preview">{draft.fieldPhotos.map((photo, index) => <div key={`${photo.slice(0, 24)}-${index}`}><ProtectedPhoto fieldId={draft.id} photo={photo} alt={`Фото поля ${index + 1}`} /><button type="button" onClick={() => setDraft((current) => ({ ...current, fieldPhotos: current.fieldPhotos?.filter((_, photoIndex) => photoIndex !== index) }))}>×</button></div>)}</div>}
           <button type="button" className="outline-button" onClick={analyzePhotos} disabled={photoLoading || !draft.id || !draft.fieldPhotos?.length}>{photoLoading ? 'AI анализирует фото…' : '✦ Проанализировать фото'}</button>
           {draft.photoAnalysis && <div className="field-photo-analysis"><b>Вывод AI</b><p>{draft.photoAnalysis}</p></div>}
           {photoError && <small className="setup-error">{photoError}</small>}

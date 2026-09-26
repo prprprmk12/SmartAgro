@@ -11,6 +11,7 @@ import { CdseError, fetchCdseMeasurements, geometryFromBoundary, isCdseConfigure
 import { hashPassword, verifyPassword } from './passwords.mjs'
 import { migrateRoles } from './roles.mjs'
 import { forecastFromHistory } from './yieldForecast.mjs'
+import { PhotoStorageError, decodePhoto, externalizeFieldPhotos, isPhotoReference, isPhotoValue, photoDataUri, photoStorageConfigured, photoValues, signedPhotoUrl } from './photos.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist')
@@ -92,12 +93,12 @@ function normalizeField(value) {
   }
   if (!result.areaHa || result.plantedAreaHa > result.areaHa) return null
   if (value.fieldPhotos !== undefined) {
-    if (!Array.isArray(value.fieldPhotos) || value.fieldPhotos.length > 5 || value.fieldPhotos.some((photo) => typeof photo !== 'string' || photo.length > 3_000_000 || !/^data:image\/(jpeg|png|webp);base64,/.test(photo))) return null
+    if (!Array.isArray(value.fieldPhotos) || value.fieldPhotos.length > 5 || value.fieldPhotos.some((photo) => !isPhotoValue(photo))) return null
     result.fieldPhotos = value.fieldPhotos
   }
   if (value.photoAnalysis !== undefined) result.photoAnalysis = String(value.photoAnalysis).slice(0, 10000)
   if (value.analysisHistory !== undefined) {
-    if (!Array.isArray(value.analysisHistory) || value.analysisHistory.length > 20) return null
+    if (!Array.isArray(value.analysisHistory) || value.analysisHistory.length > 20 || value.analysisHistory.some((entry) => !entry || typeof entry.id !== 'string' || typeof entry.analysis !== 'string' || entry.analysis.length > 10000 || !Array.isArray(entry.photos) || entry.photos.length > 5 || entry.photos.some((photo) => !isPhotoValue(photo)))) return null
     result.analysisHistory = value.analysisHistory
   }
   return result
@@ -236,7 +237,9 @@ async function start() {
     const data = normalizeField(req.body)
     if (!data) return res.status(400).json({ error: 'Некорректные данные поля' })
     if (await fields.findOne({ companyId: req.user.companyId, name: data.name })) return res.status(409).json({ error: 'Поле с таким названием уже существует' })
-    const field = { ...data, companyId: req.user.companyId, createdAt: new Date(), updatedAt: new Date() }
+    const _id = new ObjectId()
+    const stored = await externalizeFieldPhotos(data, null, req.user.companyId, _id)
+    const field = { ...stored, _id, companyId: req.user.companyId, createdAt: new Date(), updatedAt: new Date() }
     const inserted = await fields.insertOne(field)
     res.status(201).json(publicField({ ...field, _id: inserted.insertedId }))
   })
@@ -246,7 +249,10 @@ async function start() {
     const normalized = req.body.map(normalizeField)
     if (normalized.some((field) => !field) || new Set(normalized.map((field) => field.name)).size !== normalized.length) return res.status(400).json({ error: 'Проверьте данные и названия полей' })
     if (await fields.findOne({ companyId: req.user.companyId, name: { $in: normalized.map((field) => field.name) } })) return res.status(409).json({ error: 'Одно из полей уже существует' })
-    const items = normalized.map((field) => ({ ...field, companyId: req.user.companyId, createdAt: new Date(), updatedAt: new Date(), _id: new ObjectId() }))
+    const items = await Promise.all(normalized.map(async (field) => {
+      const _id = new ObjectId()
+      return { ...await externalizeFieldPhotos(field, null, req.user.companyId, _id), companyId: req.user.companyId, createdAt: new Date(), updatedAt: new Date(), _id }
+    }))
     await fields.insertMany(items)
     res.status(201).json(items.map(publicField))
   })
@@ -259,8 +265,34 @@ async function start() {
     const existing = await fields.findOne({ _id, companyId: req.user.companyId })
     if (!existing) return res.status(404).json({ error: 'Поле не найдено' })
     if (data.name !== existing.name && await fields.findOne({ companyId: req.user.companyId, name: data.name })) return res.status(409).json({ error: 'Поле с таким названием уже существует' })
-    await fields.updateMany({ _id, companyId: req.user.companyId }, { $set: { ...data, updatedAt: new Date() } })
-    res.json(publicField({ ...existing, ...data, updatedAt: new Date() }))
+    const stored = await externalizeFieldPhotos(data, existing, req.user.companyId, _id)
+    const updatedAt = new Date()
+    await fields.updateMany({ _id, companyId: req.user.companyId }, { $set: { ...stored, updatedAt } })
+    res.json(publicField({ ...existing, ...stored, updatedAt }))
+  })
+
+  app.get('/api/fields/:fieldId/photos/:photoRef/link', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId) || !isPhotoReference(req.params.photoRef)) return res.status(400).json({ error: 'Некорректное поле или фото' })
+    const field = await fields.findOne({ _id: new ObjectId(req.params.fieldId), companyId: req.user.companyId })
+    if (!field || !photoValues(field).includes(req.params.photoRef)) return res.status(404).json({ error: 'Фото не найдено у этого поля' })
+    const url = await signedPhotoUrl(req.user.companyId, field._id, req.params.photoRef)
+    res.set('Cache-Control', 'no-store').json({ url })
+  })
+
+  app.post('/api/photos/migrate', requireUser, requireOwner, async (req, res) => {
+    if (!photoStorageConfigured()) return res.status(503).json({ error: 'Сначала настройте объектное хранилище фото' })
+    const records = await fields.find({ companyId: req.user.companyId }).toArray()
+    let migratedFields = 0
+    let migratedReferences = 0
+    for (const record of records) {
+      const before = photoValues(record).filter((photo) => typeof photo === 'string' && photo.startsWith('data:image/')).length
+      if (!before) continue
+      const stored = await externalizeFieldPhotos({ fieldPhotos: record.fieldPhotos, analysisHistory: record.analysisHistory }, record, req.user.companyId, record._id)
+      await fields.updateOne({ _id: record._id, companyId: req.user.companyId }, { $set: { fieldPhotos: stored.fieldPhotos ?? [], analysisHistory: stored.analysisHistory ?? [] } })
+      migratedFields++
+      migratedReferences += before
+    }
+    res.json({ migratedFields, migratedReferences })
   })
 
   app.get('/api/fields/:fieldId/seasons', requireUser, async (req, res) => {
@@ -634,9 +666,11 @@ async function start() {
     const images = Array.isArray(req.body?.images) ? req.body.images : []
     const analysisHistory = Array.isArray(field.analysisHistory) ? field.analysisHistory.slice(-5).map((entry) => ({ createdAt: entry.createdAt, analysis: entry.analysis })) : []
     if (!field?.name || !field?.crop || !images.length) return res.status(400).json({ error: 'Передайте поле и хотя бы одно фото' })
-    const validImages = images.filter((image) => typeof image === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,/.test(image)).slice(0, 5)
-    if (!validImages.length) return res.status(400).json({ error: 'Поддерживаются только JPG, PNG и WEBP' })
-    if (validImages.some((image) => image.length > 7_000_000)) return res.status(413).json({ error: 'Размер одного фото не должен превышать 5 МБ' })
+    const requested = images.slice(0, 5)
+    if (requested.some((image) => !isPhotoValue(image))) return res.status(400).json({ error: 'Поддерживаются только сохранённые фото поля или JPG, PNG и WEBP' })
+    const permitted = new Set(photoValues(field))
+    if (requested.some((image) => isPhotoReference(image) && !permitted.has(image))) return res.status(404).json({ error: 'Фото не найдено у этого поля' })
+    for (const image of requested) if (!isPhotoReference(image)) decodePhoto(image)
     if (!openAiApiKey) {
       return res.json({
         analysis: 'Demo-режим: фото сохранено у этого поля. Для компьютерного анализа подключите OPENAI_API_KEY на backend. Пока проверьте равномерность всходов, цвет листьев, пропуски и зоны угнетения.',
@@ -650,6 +684,7 @@ async function start() {
 Следующий шаг: что агроному проверить в поле.
 Уверенность: низкая/средняя/высокая.
 Учитывай культуру, площадь и дату сева из контекста.`
+    const validImages = await Promise.all(requested.map((image) => isPhotoReference(image) ? photoDataUri(req.user.companyId, field._id, image) : image))
     const content = [
       { type: 'text', text: `Поле: ${JSON.stringify({ name: field.name, crop: field.crop, areaHa: field.areaHa, sowingDate: field.sowingDate })}\nИстория анализов этого же поля: ${JSON.stringify(analysisHistory)}` },
       ...validImages.map((image) => ({ type: 'image_url', image_url: { url: image, detail: 'low' } })),
@@ -712,6 +747,13 @@ async function start() {
       console.error('AI request failed:', error.message)
       res.json({ answer: await fallbackAiAnswer(message, observations, yieldForecast), source: 'rule-based', confidence: 0, warning: 'OpenAI временно недоступен' })
     }
+  })
+
+  app.use('/api', (error, _req, res, next) => {
+    if (res.headersSent) return next(error)
+    if (error instanceof PhotoStorageError) return res.status(error.status).json({ error: error.message })
+    console.error('API request failed:', error?.name || 'Error')
+    res.status(500).json({ error: 'Сервер не смог обработать запрос' })
   })
 
   // Serve built frontend in production
