@@ -699,7 +699,7 @@ function App() {
 
         <div className="sidebar-section-header">
           <span>Поля хозяйства</span>
-          <button className="sidebar-add-button" onClick={openNewFieldEditor}>＋</button>
+          <button className="sidebar-add-button" aria-label="Добавить поле" onClick={openNewFieldEditor}>＋</button>
         </div>
 
         <div className="sidebar-field-list">
@@ -707,6 +707,7 @@ function App() {
             <button
               key={field.name}
               className={selectedField?.name === field.name ? 'sidebar-field-item active' : 'sidebar-field-item'}
+              aria-pressed={selectedField?.name === field.name}
               onClick={() => setSelectedFieldName(field.name)}
             >
               <div className="field-list-main">
@@ -734,7 +735,7 @@ function App() {
           <div className="top-actions">
             <span className="live-pill"><i /> Система работает</span>
             <button className="icon-button" aria-label="Уведомления" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
-            <button className="profile" onClick={() => setProfileOpen(true)}>{agronomistName}<span className="profile-avatar">{getInitials(agronomistName)}</span></button>
+            <button className="profile" aria-label={`Профиль: ${agronomistName}`} onClick={() => setProfileOpen(true)}><span className="profile-name">{agronomistName}</span><span className="profile-avatar">{getInitials(agronomistName)}</span></button>
           </div>
         </header>
 
@@ -767,7 +768,7 @@ function App() {
                 <div><h2>Карта полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · {layer === 'Топография' ? 'OpenTopoMap (данные OpenStreetMap и SRTM)' : 'Esri World Imagery (мозаика снимков; дата зависит от района)'}</p></div>
                 <div className="map-actions">
                   <button className="small-icon" title="Информация и история поля" onClick={() => setFieldInfoOpen(true)}>i</button>
-                  <button className="small-icon" onClick={() => openFieldEditor(selectedField.name)}>✎</button>
+                  <button className="small-icon" aria-label="Редактировать поле" onClick={() => openFieldEditor(selectedField.name)}>✎</button>
                 </div>
               </div>
               <div className="map-stage">
@@ -811,10 +812,10 @@ function App() {
               const isActive = field.name === selectedField.name
               return (
                 <button className={isActive ? 'field-table-row active' : 'field-table-row'} key={`${field.name}-${index}`} onClick={() => setSelectedFieldName(field.name)}>
-                  <span className="field-name"><i className="field-health healthy" />{field.name}<small>{field.crop} · сев {field.sowingDate} · обновлено {formatDateTime(field.updatedAt)}</small></span>
-                  <span>{field.areaHa} га</span>
-                  <strong>{harvest.toLocaleString('ru-RU')} т</strong>
-                  <span className="table-status healthy-text">{formatMeasurement(actualYield(field), 'т/га')}</span>
+                  <span className="field-name"><i className="field-health healthy" /><span>{field.name}<small>{field.crop} · сев {field.sowingDate} · обновлено {formatDateTime(field.updatedAt)}</small></span></span>
+                  <span data-label="Площадь">{field.areaHa} га</span>
+                  <strong data-label="Собрано">{harvest.toLocaleString('ru-RU')} т</strong>
+                  <span data-label="Урожайность" className="table-status healthy-text">{formatMeasurement(actualYield(field), 'т/га')}</span>
                   <span className="row-arrow" onClick={(event) => { event.stopPropagation(); openFieldEditor(field.name) }}>✎</span>
                 </button>
               )

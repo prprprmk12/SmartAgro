@@ -216,8 +216,10 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
       })
     }
     const resize = setTimeout(() => map.invalidateSize(), 150)
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan: false }))
+    resizeObserver.observe(element.current)
     setReady(true)
-    return () => { abort.abort(); clearTimeout(resize); if (clickTimer) clearTimeout(clickTimer); map.remove() }
+    return () => { abort.abort(); resizeObserver.disconnect(); clearTimeout(resize); if (clickTimer) clearTimeout(clickTimer); map.remove() }
   }, [dataKey])
 
   return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileWarning && <div className="map-warning">{tileWarning}</div>}{!selectionMode && layer && layer !== 'Спутник' && layer !== 'Топография' && <div className="map-data-note">{indexObservation ? `Среднее ${layer}: ${indexObservation.value.toFixed(3)} · ${indexObservation.date} · ${indexObservation.source} (${indexObservation.origin === 'cdse' ? 'CDSE по контуру' : 'CSV пользователя, источник не проверен'}; не карта зон)` : `Нет данных ${layer} для выбранного периода`}</div>}</div>
