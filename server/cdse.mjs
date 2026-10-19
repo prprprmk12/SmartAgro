@@ -59,6 +59,32 @@ async function getToken() {
   return cachedToken
 }
 
+// Shared authenticated transport for numeric raster requests; credentials stay on the server.
+export async function fetchCdseProcess(body) {
+  if (!isCdseConfigured()) throw new CdseError('auth', 0, 'CDSE_CLIENT_ID и CDSE_CLIENT_SECRET не заданы на сервере')
+  const token = await getToken()
+  const response = await fetchProvider(process.env.CDSE_PROCESS_URL || 'https://sh.dataspace.copernicus.eu/api/v1/process', {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'image/png' },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+  }, 'process')
+  if (response.status === 401) { cachedToken = null; tokenExpiresAt = 0 }
+  if (!response.ok) throw await providerError(response, 'process')
+  // Bound the response before decoding untrusted compressed imagery.
+  const reader = response.body.getReader()
+  const chunks = []
+  let size = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > 2_000_000) { await reader.cancel(); throw new CdseError('process', 0, 'ответ растрового слоя слишком большой') }
+      chunks.push(Buffer.from(value))
+    }
+  } finally { reader.releaseLock() }
+  return Buffer.concat(chunks)
+}
+
 // Statistical API masks cloud, shadow, snow and invalid pixels using Sentinel-2 L2A SCL.
 // NDWI here is the vegetation-water index (NIR-SWIR1), not the water-body index (green-NIR).
 export const cdseEvalscript = `//VERSION=3

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { IndexMeasurement } from './indices'
+import type { IndexRaster } from './IndexMapPanel'
 
 type Point = [number, number]
 type MapField = { name: string; crop: string; coordinates?: Point; boundary?: Point[] }
@@ -17,6 +18,7 @@ type Props = {
   allowOnlyZones?: boolean
   layer?: string
   indexObservation?: IndexMeasurement | null
+  indexRaster?: IndexRaster | null
   onSelectField?: (name: string) => void
 }
 
@@ -55,12 +57,12 @@ function popup(field: MapField, approximate: boolean, observation?: IndexMeasure
   return content
 }
 
-export default function FieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer, indexObservation, onSelectField }: Props) {
+export default function FieldMap({ fields, customFields, selectedField, userLocation, fieldPoints = [], fieldAreas = [], fieldBoundaries = [], selectionZones = [], allowOnlyZones = false, layer, indexObservation, indexRaster, onSelectField }: Props) {
   const element = useRef<HTMLDivElement>(null)
   const [tileWarning, setTileWarning] = useState('')
   const [ready, setReady] = useState(false)
   const selectionMode = allowOnlyZones || selectedField === undefined
-  const dataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones, layer, indexObservation })
+  const dataKey = JSON.stringify({ fields, customFields, selectedField, userLocation, fieldPoints, fieldAreas, fieldBoundaries, selectionZones, allowOnlyZones, layer, indexObservation, raster: indexRaster ? [indexRaster.fieldId, indexRaster.index, indexRaster.date, indexRaster.fetchedAt] : null })
   const selectRef = useRef(onSelectField)
   selectRef.current = onSelectField
 
@@ -70,6 +72,7 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     setTileWarning('')
     const abort = new AbortController()
     const map = L.map(element.current, { doubleClickZoom: false, zoomControl: true }).setView([51.1, 71.47], selectionMode ? 7 : 11)
+    const zonesMode = !selectionMode && ['NDVI', 'NDWI', 'EVI'].includes(layer || '')
     let tileFailures = 0
     let fallbackAdded = false
     const topographicTiles = () => L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -155,13 +158,13 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
       const fillColor = observation && exact ? { ndvi: '#3d9860', evi: '#308b85', ndwi: '#367fb0' }[observation.index] : active ? '#308d55' : '#93aa65'
       const polygon = L.polygon(outline, {
         color: active ? '#ffffff' : '#dcebb0', weight: active ? 4 : 2,
-        fillColor, fillOpacity: exact ? observation ? 0.24 : 0.12 : 0.08,
+        fillColor, fillOpacity: active && zonesMode ? 0 : exact ? observation ? 0.24 : 0.12 : 0.08,
         dashArray: exact ? undefined : '6 4', interactive: !selectionMode,
       }).addTo(map)
-      polygon.bindPopup(popup(field, !exact, observation))
+      if (!(active && zonesMode)) polygon.bindPopup(popup(field, !exact, observation))
       polygon.on('click', () => selectRef.current?.(field.name))
       const center = polygon.getBounds().getCenter()
-      L.marker(center, { icon: L.divIcon({ className: 'smartagro-field-label', html: `<span>${field.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</span>`, iconSize: [90, 24], iconAnchor: [45, 12] }), interactive: !selectionMode })
+      L.marker(center, { icon: L.divIcon({ className: 'smartagro-field-label', html: `<span>${field.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</span>`, iconSize: [90, 24], iconAnchor: [45, 12] }), interactive: !selectionMode && !(active && zonesMode) })
         .addTo(map).on('click', () => selectRef.current?.(field.name))
       allBounds.extend(polygon.getBounds())
       if (active) selectedBounds = polygon.getBounds()
@@ -173,6 +176,60 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     if (selectedBounds) map.fitBounds(selectedBounds, { padding: [35, 35], maxZoom: 15 })
     else if (allBounds.isValid()) map.fitBounds(allBounds, { padding: [30, 30], maxZoom: 14 })
     else if (userLocation) map.setView([userLocation.lat, userLocation.lon], 11)
+
+    const boundary = fieldBoundaries[fields.indexOf(selectedField || '')]
+    if (zonesMode && indexRaster?.status === 'ready' && indexRaster.index.toUpperCase() === layer && boundary?.length) {
+      const raster = indexRaster
+      const [minX, minY, maxX, maxY] = raster.bbox
+      const pixels = document.createElement('canvas')
+      pixels.width = raster.width
+      pixels.height = raster.height
+      const context = pixels.getContext('2d')!
+      const image = context.createImageData(raster.width, raster.height)
+      raster.values.forEach((value, i) => {
+        if (value === null) return
+        const zone = raster.legend.find((zone, position) => value >= zone.min && (value < zone.max || position === raster.legend.length - 1 && value <= zone.max))
+        if (!zone) return
+        const rgb = Number.parseInt(zone.color.slice(1), 16)
+        image.data.set([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 255], i * 4)
+      })
+      context.putImageData(image, 0, 0)
+      // Clip edge pixels to the exact contour rather than drawing a rectangular footprint.
+      const clipped = document.createElement('canvas')
+      clipped.width = raster.width
+      clipped.height = raster.height
+      const clipContext = clipped.getContext('2d')!
+      clipContext.beginPath()
+      boundary.forEach(([lat, lon], i) => {
+        const point = L.CRS.EPSG3857.project(L.latLng(lat, lon))
+        const x = (point.x - minX) / (maxX - minX) * raster.width
+        const y = (maxY - point.y) / (maxY - minY) * raster.height
+        if (i) clipContext.lineTo(x, y)
+        else clipContext.moveTo(x, y)
+      })
+      clipContext.closePath()
+      clipContext.clip()
+      clipContext.drawImage(pixels, 0, 0)
+      const southWest = L.CRS.EPSG3857.unproject(L.point(minX, minY))
+      const northEast = L.CRS.EPSG3857.unproject(L.point(maxX, maxY))
+      L.imageOverlay(clipped.toDataURL(), L.latLngBounds(southWest, northEast), {
+        opacity: 0.8, className: 'index-raster-overlay', alt: `${layer}: зоны поля за ${raster.date}`, attribution: 'Sentinel-2 L2A / CDSE',
+      }).addTo(map)
+      map.on('click', event => {
+        if (!inside([event.latlng.lat, event.latlng.lng], boundary)) return
+        const point = L.CRS.EPSG3857.project(event.latlng)
+        const col = Math.floor((point.x - minX) / (maxX - minX) * raster.width)
+        const row = Math.floor((maxY - point.y) / (maxY - minY) * raster.height)
+        const value = col >= 0 && row >= 0 && col < raster.width && row < raster.height ? raster.values[row * raster.width + col] : null
+        const content = document.createElement('div')
+        const title = document.createElement('strong')
+        title.textContent = value == null ? 'Нет валидных данных в этой точке' : `${layer}: ${value.toFixed(3)}`
+        const detail = document.createElement('p')
+        detail.textContent = `${event.latlng.lat.toFixed(6)}, ${event.latlng.lng.toFixed(6)} · ${raster.date} UTC · сетка ≈${raster.resolutionM} м. ${value == null ? 'Облака, тени, снег, вода или отсутствие покрытия.' : 'Значение пикселя, не агрономический диагноз.'}`
+        content.append(title, detail)
+        L.popup({ maxWidth: 250 }).setLatLng(event.latlng).setContent(content).openOn(map)
+      })
+    }
 
     let clickTimer: ReturnType<typeof setTimeout> | null = null
     if (selectionMode) {
@@ -222,5 +279,5 @@ export default function FieldMap({ fields, customFields, selectedField, userLoca
     return () => { abort.abort(); resizeObserver.disconnect(); clearTimeout(resize); if (clickTimer) clearTimeout(clickTimer); map.remove() }
   }, [dataKey])
 
-  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileWarning && <div className="map-warning">{tileWarning}</div>}{!selectionMode && layer && layer !== 'Спутник' && layer !== 'Топография' && <div className="map-data-note">{indexObservation ? `Среднее ${layer}: ${indexObservation.value.toFixed(3)} · ${indexObservation.date} · ${indexObservation.source} (${indexObservation.origin === 'cdse' ? 'CDSE по контуру' : 'CSV пользователя, источник не проверен'}; не карта зон)` : `Нет данных ${layer} для выбранного периода`}</div>}</div>
+  return <div className="real-map leaflet-map-container"><div ref={element} className="leaflet-map-canvas" />{!ready && <div className="map-loading">Загрузка карты…</div>}{tileWarning && <div className="map-warning">{tileWarning}</div>}</div>
 }

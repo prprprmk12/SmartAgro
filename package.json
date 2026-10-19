@@ -26,6 +26,7 @@
     "express": "latest",
     "leaflet": "^1.9.4",
     "pg": "^8.23.0",
+    "pngjs": "7.0.0",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",

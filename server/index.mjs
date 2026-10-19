@@ -11,6 +11,7 @@ import { CdseError, fetchCdseMeasurements, geometryFromBoundary, isCdseConfigure
 import { hashPassword, verifyPassword } from './passwords.mjs'
 import { migrateRoles } from './roles.mjs'
 import { forecastFromHistory } from './yieldForecast.mjs'
+import { fetchIndexMap, mapVersion } from './indexMap.mjs'
 import { PhotoStorageError, decodePhoto, externalizeFieldPhotos, isPhotoReference, isPhotoValue, photoDataUri, photoStorageConfigured, photoValues, signedPhotoUrl } from './photos.mjs'
 import { analyzePhotoWithOpenAI, VisionProviderError } from './openai-vision.mjs'
 
@@ -168,6 +169,8 @@ async function start() {
   const indexMeasurements = db.collection('indexMeasurements')
   const cdseSyncs = db.collection('cdseSyncs')
   const cdseInFlight = new Set()
+  const indexMaps = db.collection('indexMaps')
+  const mapsInFlight = new Map()
   const sessions = db.collection('sessions')
   const invitations = db.collection('invitations')
   const weatherSnapshots = db.collection('weatherSnapshots')
@@ -397,6 +400,50 @@ async function start() {
     const currentGeometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary ?? null)).digest('hex')
     const series = items.filter((item) => item.origin !== 'cdse' || item.geometryHash === currentGeometryHash).map(publicIndexMeasurement)
     res.json({ fieldId: fieldId.toString(), index, period, series, latest: series.at(-1) ?? null, source: 'CDSE — рассчитано по контуру поля; CSV — загружено пользователем, происхождение не проверено' })
+  })
+
+  app.get('/api/fields/:fieldId/map', requireUser, async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store')
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const index = typeof req.query.layer === 'string' ? req.query.layer.toLowerCase() : 'ndvi'
+    if (!supportedIndices.includes(index)) return res.status(400).json({ error: 'Укажите слой ndvi/evi/ndwi' })
+    const fieldId = new ObjectId(req.params.fieldId)
+    const field = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    try { geometryFromBoundary(field.boundary) } catch (error) { return res.status(422).json({ error: error.message }) }
+    const geometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary)).digest('hex')
+    const filter = { companyId: req.user.companyId, fieldId, index }
+    const observations = await indexMeasurements.find({ ...filter, origin: 'cdse', geometryHash }).sort({ date: -1 }).toArray()
+    const date = observations[0]?.date
+    const measurementUpdatedAt = observations[0]?.ingestedAt ? new Date(observations[0].ingestedAt).toISOString() : null
+    if (!date) return res.json({ status: 'empty', fieldId: fieldId.toString(), index, message: 'Нет спутниковой даты для этого контура. Нажмите «Обновить из CDSE» в блоке индексов. Из среднего значения CSV построить зоны нельзя.' })
+    const cached = await indexMaps.findOne(filter)
+    if (cached?.geometryHash === geometryHash && cached?.measurementUpdatedAt === measurementUpdatedAt && cached?.raster?.date === date && cached?.raster?.processingVersion === mapVersion) return res.json({ ...cached.raster, fieldId: fieldId.toString(), cached: true })
+    if (!isCdseConfigured()) return res.status(503).json({ error: 'Для карты зон настройте CDSE_CLIENT_ID и CDSE_CLIENT_SECRET на сервере.' })
+    // Share simultaneous requests (including React StrictMode) and limit provider concurrency.
+    const key = `${fieldId}:${index}:${geometryHash}:${date}:${measurementUpdatedAt}`
+    if (!mapsInFlight.has(key)) {
+      if (mapsInFlight.size >= 4) return res.status(429).json({ error: 'Загрузка спутниковых слоёв занята. Повторите через минуту.' })
+      const work = (async () => {
+        const raster = await fetchIndexMap(field.boundary, index, date)
+        const current = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
+        if (!current || crypto.createHash('sha256').update(JSON.stringify(current.boundary)).digest('hex') !== geometryHash) throw new Error('geometry changed')
+        // One bounded raster per field/index, replacing the previous date rather than accumulating images.
+        if (cached) await indexMaps.updateMany({ _id: cached._id, companyId: req.user.companyId }, { $set: { geometryHash, measurementUpdatedAt, raster } })
+        else await indexMaps.insertOne({ ...filter, geometryHash, measurementUpdatedAt, raster })
+        return raster
+      })()
+      mapsInFlight.set(key, work)
+    }
+    const work = mapsInFlight.get(key)
+    try {
+      const raster = await work
+      res.json({ ...raster, fieldId: fieldId.toString(), cached: false })
+    } catch (error) {
+      const requestId = crypto.randomUUID()
+      console.error('CDSE map failed:', { requestId, stage: error.stage || 'internal', status: error.status, reason: error instanceof CdseError ? error.reason : 'map unavailable' })
+      res.status(error.status === 429 ? 429 : error instanceof CdseError ? 502 : 500).json({ error: error instanceof CdseError ? `Не удалось загрузить зоны CDSE: ${error.reason}` : 'Не удалось сохранить слой. Обновите поле и повторите.', requestId })
+    } finally { if (mapsInFlight.get(key) === work) mapsInFlight.delete(key) }
   })
 
   app.post('/api/fields/:fieldId/indices/import', requireUser, async (req, res) => {

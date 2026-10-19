@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import YandexFieldMap from './FieldMap'
+import { IndexMapPanel, useIndexMap } from './IndexMapPanel'
 import { buildFieldReportHtml } from './report'
 import { parseIndexCsv, type IndexMeasurement, type IndexName, type IndexResponse } from './indices'
 import AuthScreen from './AuthScreen'
@@ -399,6 +400,7 @@ function App() {
   }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
+  const indexMap = useIndexMap(authenticated ? selectedField.id : undefined, selectedField.boundary, layer, indexRefresh)
   const visibleForecast = forecast && selectedField.id && forecast.fieldId === selectedField.id && forecast.features.crop.toLocaleLowerCase('ru-RU') === selectedField.crop.toLocaleLowerCase('ru-RU') && forecast.features.fieldAreaHa === (selectedField.plantedAreaHa > 0 ? selectedField.plantedAreaHa : null) ? forecast : null
 
   useEffect(() => {
@@ -772,9 +774,10 @@ function App() {
                 </div>
               </div>
               <div className="map-stage">
-                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexObservation={!['Спутник', 'Топография'].includes(layer) ? visibleIndex?.latest ?? null : null} onSelectField={setSelectedFieldName} />
-                <div className="layer-switcher">{['Спутник', 'Топография', 'NDVI', 'EVI', 'NDWI'].map((item) => <button className={layer === item ? 'selected' : ''} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
+                <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexRaster={indexMap.data} onSelectField={setSelectedFieldName} />
+                <div className="layer-switcher">{['Спутник', 'Топография', 'NDVI', 'EVI', 'NDWI'].map((item) => <button className={layer === item ? 'selected' : ''} aria-pressed={layer === item} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
+              <IndexMapPanel state={indexMap} onSync={() => void syncCdse()} syncBusy={cdseLoading} syncError={cdseError} />
             </div>
 
             <div className="insight-card panel">

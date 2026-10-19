@@ -4,6 +4,7 @@ import { createServer } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
 import { once } from 'node:events'
 import { test } from 'node:test'
+import { PNG } from 'pngjs'
 
 const listener = createServer()
 listener.listen(0, '127.0.0.1')
@@ -14,6 +15,9 @@ await new Promise((resolve) => listener.close(resolve))
 let weatherUnavailable = false
 let requestedCoordinates = ''
 let cdseCalls = 0
+let mapCalls = 0
+let failMap = false
+let mapRequest = null
 let cdseGeometry = null
 let cdseEvalscript = ''
 let failCdseToken = true
@@ -66,6 +70,23 @@ const weatherServer = createHttpServer((req, res) => {
     })
     return
   }
+  if (url.pathname === '/process') {
+    mapCalls++
+    const chunks = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => {
+      mapRequest = JSON.parse(Buffer.concat(chunks).toString())
+      if (failMap) { res.writeHead(503, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: 'Process temporarily unavailable' } })); return }
+      const { width, height } = mapRequest.output
+      const png = new PNG({ width, height })
+      for (let i = 0; i < width * height; i++) {
+        const packed = Math.round((i % width < width / 2 ? 1.15 : 1.7) * 32767)
+        png.data.set([packed >> 8, packed & 255, 0, i < width ? 0 : 255], i * 4)
+      }
+      res.writeHead(200, { 'Content-Type': 'image/png' }).end(PNG.sync.write(png))
+    })
+    return
+  }
   requestedCoordinates = `${url.searchParams.get('latitude')},${url.searchParams.get('longitude')}`
   if (weatherUnavailable) { res.writeHead(503).end(); return }
   const time = Array.from({ length: 7 }, (_, index) => new Date(Date.now() + index * 86400000).toISOString().slice(0, 10))
@@ -79,7 +100,7 @@ await once(weatherServer, 'listening')
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: new URL('..', import.meta.url),
-  env: { ...process.env, NODE_ENV: 'test', OPENAI_API_KEY: '', OPENAI_VISION_API_KEY: 'mock-openai-key', OPENAI_VISION_TEST_URL: `http://127.0.0.1:${weatherServer.address().port}/openai/vision`, DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics`, S3_ENDPOINT: `http://127.0.0.1:${weatherServer.address().port}`, S3_REGION: 'us-east-1', S3_BUCKET: 'photos-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test-secret', S3_FORCE_PATH_STYLE: 'true' },
+  env: { ...process.env, NODE_ENV: 'test', CDSE_PROCESS_URL: `http://127.0.0.1:${weatherServer.address().port}/process`, OPENAI_API_KEY: '', OPENAI_VISION_API_KEY: 'mock-openai-key', OPENAI_VISION_TEST_URL: `http://127.0.0.1:${weatherServer.address().port}/openai/vision`, DATABASE_URL: 'pglite://test', PORT: String(port), OPEN_METEO_BASE_URL: `http://127.0.0.1:${weatherServer.address().port}`, CDSE_CLIENT_ID: 'mock-client', CDSE_CLIENT_SECRET: 'mock-secret', CDSE_TOKEN_URL: `http://127.0.0.1:${weatherServer.address().port}/token`, CDSE_STATISTICS_URL: `http://127.0.0.1:${weatherServer.address().port}/statistics`, S3_ENDPOINT: `http://127.0.0.1:${weatherServer.address().port}`, S3_REGION: 'us-east-1', S3_BUCKET: 'photos-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test-secret', S3_FORCE_PATH_STYLE: 'true' },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let serverOutput = ''
@@ -342,6 +363,12 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     const cdseField = await request('/api/fields', 'POST', first.token, { ...field, name: 'CDSE field', coordinates: [51.405, 71.505], boundary: [[51.4, 71.5], [51.4, 71.51], [51.41, 71.51], [51.41, 71.5]] })
     assert.equal(cdseField.status, 201)
     const cdsePath = `/api/fields/${cdseField.data.id}/indices`
+    const mapPath = `/api/fields/${cdseField.data.id}/map?layer=ndvi`
+    assert.equal((await request(mapPath)).status, 401)
+    assert.equal((await request(mapPath, 'GET', second.token)).status, 404)
+    assert.equal((await request(`/api/fields/${created.data.id}/map?layer=ndvi`, 'GET', first.token)).status, 422)
+    assert.equal((await request(mapPath, 'GET', first.token)).data.status, 'empty')
+    assert.equal(mapCalls, 0)
     assert.equal((await request(`${cdsePath}/sync`, 'POST', second.token)).status, 404)
     const authFailure = await request(`${cdsePath}/sync`, 'POST', first.token)
     assert.equal(authFailure.status, 502)
@@ -366,9 +393,29 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.equal(cdseIndices.data.latest.validPixelPct, 80)
     assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 429)
     assert.equal(cdseCalls, 1)
+    failMap = true
+    assert.equal((await request(mapPath, 'GET', first.token)).status, 502)
+    failMap = false
+    const maps = await Promise.all([request(mapPath, 'GET', first.token), request(mapPath, 'GET', first.token)])
+    assert.ok(maps.every(result => result.status === 200 && result.data.status === 'ready'))
+    assert.equal(mapCalls, 2, 'one failed provider call and one shared successful call')
+    assert.equal(mapRequest.input.data[0].dataFilter.timeRange.from.slice(0, 10), today)
+    assert.equal(maps[0].data.values.length, maps[0].data.width * maps[0].data.height)
+    assert.equal(maps[0].data.values[0], null)
+    assert.ok(maps[0].data.values.some(value => value > 0.69))
+    assert.ok(maps[0].data.validPixelPct < 100)
+    const cachedMap = await request(mapPath, 'GET', login.data.token)
+    assert.equal(cachedMap.data.cached, true)
+    assert.equal(mapCalls, 2)
+    assert.equal((await request(mapPath, 'GET', second.token)).status, 404)
+    const ndwiMap = await request(`/api/fields/${cdseField.data.id}/map?layer=ndwi`, 'GET', first.token)
+    assert.equal(ndwiMap.data.index, 'ndwi')
+    assert.match(mapRequest.evalscript, /const value = \(s.B08 - s.B11\)/)
+    assert.equal(mapCalls, 3)
     const cdseUpdated = await request(`/api/fields/${cdseField.data.id}`, 'PUT', first.token, { ...field, name: 'CDSE field', coordinates: [51.406, 71.506], boundary: [[51.401, 71.501], [51.401, 71.511], [51.411, 71.511], [51.411, 71.501]] })
     assert.equal(cdseUpdated.status, 200)
     assert.equal((await request(`${cdsePath}?index=ndvi&period=7d`, 'GET', first.token)).data.latest, null)
+    assert.equal((await request(mapPath, 'GET', first.token)).data.status, 'empty', 'old geometry must not expose a cached raster')
     failCdseStatistics = true
     const statsFailure = await request(`${cdsePath}/sync`, 'POST', first.token)
     assert.equal(statsFailure.status, 502)
@@ -378,6 +425,11 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     failCdseStatistics = false
     assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 200)
     assert.equal(cdseCalls, 3)
+    const updatedMap = await request(mapPath, 'GET', first.token)
+    assert.equal(updatedMap.status, 200)
+    assert.equal(updatedMap.data.cached, false)
+    assert.notDeepEqual(updatedMap.data.bbox, cachedMap.data.bbox)
+    assert.equal(mapCalls, 4)
     const forecast = await request(`/api/weather?field_id=${created.data.id}`, 'GET', first.token)
     assert.equal(forecast.status, 200)
     assert.equal(forecast.data.days.length, 7)
