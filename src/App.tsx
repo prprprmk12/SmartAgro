@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import YandexFieldMap from './FieldMap'
 import { IndexMapPanel, useIndexMap } from './IndexMapPanel'
+import Navigation, { FieldPicker, sections, useSectionNavigation } from './Navigation'
 import { buildFieldReportHtml } from './report'
 import { parseIndexCsv, type IndexMeasurement, type IndexName, type IndexResponse } from './indices'
 import AuthScreen from './AuthScreen'
@@ -312,7 +313,10 @@ function App() {
   const [saveError, setSaveError] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [sessionNotice, setSessionNotice] = useState('')
-  const [active, setActive] = useState('Обзор')
+  const active = useSectionNavigation()
+  const pageSection = sections.find(section => section.id === active)!
+  const pageTitle = useRef<HTMLHeadingElement>(null)
+  const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'done'>('open')
   const [layer, setLayer] = useState('Спутник')
   const [indexPeriod, setIndexPeriod] = useState<'7d' | '30d' | '90d'>('30d')
   const [indexData, setIndexData] = useState<IndexResponse | null>(null)
@@ -349,6 +353,13 @@ function App() {
   const [forecastLoading, setForecastLoading] = useState(false)
   const [forecastError, setForecastError] = useState('')
   const [forecastRefresh, setForecastRefresh] = useState(0)
+
+  useEffect(() => {
+    if (!authenticated || !onboardingDone) return
+    document.title = `${pageSection.label} — SmartAgro`
+    window.scrollTo({ top: 0, behavior: 'instant' })
+    pageTitle.current?.focus({ preventScroll: true })
+  }, [active, authenticated, onboardingDone])
 
   useEffect(() => {
     const expired = () => {
@@ -400,7 +411,7 @@ function App() {
   }, [authenticated])
 
   const selectedField = fieldRecords.find((field) => field.name === selectedFieldName) ?? fieldRecords[0] ?? defaultFields[0]
-  const indexMap = useIndexMap(authenticated ? selectedField.id : undefined, selectedField.boundary, layer, indexRefresh)
+  const indexMap = useIndexMap(authenticated ? selectedField.id : undefined, selectedField.boundary, active === 'fields' ? layer : '', indexRefresh)
   const visibleForecast = forecast && selectedField.id && forecast.fieldId === selectedField.id && forecast.features.crop.toLocaleLowerCase('ru-RU') === selectedField.crop.toLocaleLowerCase('ru-RU') && forecast.features.fieldAreaHa === (selectedField.plantedAreaHa > 0 ? selectedField.plantedAreaHa : null) ? forecast : null
 
   useEffect(() => {
@@ -691,54 +702,23 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">✦</span><span>smart<span>agro</span></span></div>
-        <div className="farm-switcher">
-          <div className="avatar">AK</div>
-          <div><b>{agronomistName}</b><small>{selectedCompany.name}</small></div>
-        </div>
+    <div className={`app-shell workspace-shell section-${active}`}>
+      <Navigation active={active} company={selectedCompany.name} openTasks={tasksLoading || tasksError ? null : tasks.filter(task => task.status === 'open').length} onChat={() => setChatOpen(true)} onSettings={() => setSettingsOpen(true)} />
 
-        <div className="sidebar-section-header">
-          <span>Поля хозяйства</span>
-          <button className="sidebar-add-button" aria-label="Добавить поле" onClick={openNewFieldEditor}>＋</button>
-        </div>
-
-        <div className="sidebar-field-list">
-          {fieldRecords.map((field) => (
-            <button
-              key={field.name}
-              className={selectedField?.name === field.name ? 'sidebar-field-item active' : 'sidebar-field-item'}
-              aria-pressed={selectedField?.name === field.name}
-              onClick={() => setSelectedFieldName(field.name)}
-            >
-              <div className="field-list-main">
-                <b>{field.name}</b>
-                <small>{field.crop}</small>
-              </div>
-              <div className="field-list-meta">
-                <strong>{field.areaHa} га</strong>
-                <span>{formatMeasurement(actualYield(field), 'т/га')}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="data-status"><span className="status-dot" /><div><b>Данные сохранены</b><small>Поля и расходы · ручной ввод</small></div></div>
-        </div>
-      </aside>
-
-      <main className="main-content">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span>Обзор</span><b>/</b><strong>{selectedField?.name || active}</strong>
-          </div>
+      <main className="main-content" id="workspace-main">
+        <header className="workspace-header">
+        <div className="topbar">
+          <div className="workspace-header-company"><a href="#/overview" className="mobile-brand" aria-label="SmartAgro — обзор"><span className="brand-mark">✦</span>SmartAgro</a><strong>{selectedCompany.name}</strong></div>
           <div className="top-actions">
-            <span className="live-pill"><i /> Система работает</span>
-            <button className="icon-button" aria-label="Уведомления" onClick={() => setSettingsOpen(true)}>♧<i className="notification-dot" /></button>
+            <span className="workspace-section-label">{pageSection.label}</span>
             <button className="profile" aria-label={`Профиль: ${agronomistName}`} onClick={() => setProfileOpen(true)}><span className="profile-name">{agronomistName}</span><span className="profile-avatar">{getInitials(agronomistName)}</span></button>
           </div>
+        </div>
+        <div className="workspace-fieldbar">
+          <FieldPicker fields={fieldRecords} selected={selectedField} onSelect={setSelectedFieldName} onAdd={openNewFieldEditor} />
+          <div className="workspace-field-meta"><strong>{selectedField.crop} · {selectedField.areaHa} га</strong><span>Сев: {selectedField.sowingDate || 'не указан'} · обновлено {formatDateTime(selectedField.updatedAt)}</span></div>
+          <button className="text-button" onClick={() => setFieldInfoOpen(true)}>Паспорт поля →</button>
+        </div>
         </header>
 
         <div className="content-wrap">
@@ -746,30 +726,34 @@ function App() {
           <section className="page-heading">
             <div>
               <p className="eyebrow">{formatToday()}</p>
-              <h1>Добрый день, {agronomistName.split(' ')[0]}</h1>
-              <p className="muted">Состояние хозяйства и ключевые решения на сегодня.</p>
+              <h1 ref={pageTitle} tabIndex={-1}>{active === 'overview' ? `Добрый день, ${agronomistName.split(' ')[0]}` : pageSection.label}</h1>
+              <p className="muted">{pageSection.description}</p>
             </div>
             <div className="heading-actions">
-              <div className="outline-button secondary-action">⌘ {selectedCompany.name}</div>
-              <a className="outline-button" href="#field-seasons">↘ История урожайности</a>
-              <button className="outline-button" onClick={() => setReportOpen(true)} disabled={tasksLoading || weatherLoading}>↓ Скачать отчёт</button>
+              {active === 'fields' && <button className="outline-button" onClick={openNewFieldEditor}>＋ Добавить поле</button>}
+              {active === 'overview' && <a className="outline-button" href="#/fields">Открыть карту →</a>}
+              {active === 'analytics' && <a className="outline-button" href="#/fields">Зоны на карте →</a>}
+              {active === 'economics' && <button className="outline-button" onClick={() => openFieldEditor(selectedField.name)}>Изменить расходы</button>}
               <button className="outline-button" onClick={() => setChatOpen(true)}>✦ Спросить AI-агента</button>
             </div>
           </section>
 
-          <section className="kpi-grid">
+          {active === 'overview' && <>
+          <div className="overview-farm-summary"><span><b>{fieldRecords.length}</b> полей в хозяйстве</span><span><b>{totalArea.toLocaleString('ru-RU')}</b> га общей площади</span><span>Показатели ниже: <b>{selectedField.name}</b></span></div>
+          <section className="kpi-grid" aria-label="Показатели выбранного поля">
             <KpiCard label="Площадь" value={`${selectedField.areaHa} га`} meta={`${selectedField.plantedAreaHa} га посеяно`} icon="⌁" tone="green" />
             <KpiCard label="Топливо" value={`${selectedField.fuelUsedL} л`} meta={`Сумма по полям: ${fieldRecords.reduce((sum, field) => sum + field.fuelUsedL, 0)} л`} icon="◒" tone="lime" />
             <KpiCard label="Фактическая урожайность" value={formatMeasurement(actualYield(selectedField), 'т/га')} meta={`Ввод агронома · ${formatDateTime(selectedField.updatedAt)}`} icon="✧" tone="blue" />
             <KpiCard label="Маржа по истории" value={economics.margin === null ? 'Нет данных' : `${Math.round(economics.margin).toLocaleString('ru-RU')} ₸`} meta={visibleForecast?.status === 'ready' ? 'Исторический сценарий · не гарантия' : 'Нужны 3 прошлых сезона той же культуры'} icon="₸" tone="orange" />
           </section>
+          </>}
 
-          <section className="hero-grid" id="fields-map">
-            <div className="map-card panel">
+          {(active === 'fields' || active === 'overview') && <section className="hero-grid" id="fields-map">
+            {active === 'fields' && <div className="map-card panel">
               <div className="panel-header">
                 <div><h2>Карта полей</h2><p>{selectedCompany.name} · {selectedCompany.location} · {layer === 'Топография' ? 'OpenTopoMap (данные OpenStreetMap и SRTM)' : 'Esri World Imagery (мозаика снимков; дата зависит от района)'}</p></div>
                 <div className="map-actions">
-                  <button className="small-icon" title="Информация и история поля" onClick={() => setFieldInfoOpen(true)}>i</button>
+                  <button className="small-icon" aria-label="Информация и история поля" onClick={() => setFieldInfoOpen(true)}>i</button>
                   <button className="small-icon" aria-label="Редактировать поле" onClick={() => openFieldEditor(selectedField.name)}>✎</button>
                 </div>
               </div>
@@ -778,9 +762,9 @@ function App() {
                 <div className="layer-switcher">{['Спутник', 'Топография', 'NDVI', 'EVI', 'NDWI'].map((item) => <button className={layer === item ? 'selected' : ''} aria-pressed={layer === item} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
               <IndexMapPanel state={indexMap} onSync={() => void syncCdse()} syncBusy={cdseLoading} syncError={cdseError} />
-            </div>
+            </div>}
 
-            <div className="insight-card panel">
+            {active === 'overview' && <><div className="insight-card panel">
               <div className="insight-orbit">✦</div>
               <p className="eyebrow green-text">AI SMART FARM INSIGHT</p>
               <h2>{selectedField.name} · прогноз по полю</h2>
@@ -800,11 +784,16 @@ function App() {
               <button className="dark-button" onClick={() => setChatOpen(true)}>Разобрать с AI-агентом <span>→</span></button>
               <p className="source-note">{visibleForecast?.status === 'ready' ? `${visibleForecast.modelVersion} · низкая уверенность · данные агронома` : 'Расходы и сбор — ввод агронома; данных для ориентира мало'}</p>
             </div>
-          </section>
+            <div className="overview-next panel">
+              <div className="panel-header"><div><h2>Ближайшие задачи</h2><p>{selectedField.name}</p></div><a href="#/operations" className="workspace-text-link">Все задачи →</a></div>
+              {tasksLoading ? <p className="task-empty">Загружаем задачи…</p> : tasksError ? <p className="task-error" role="alert">{tasksError}</p> : tasks.filter(task => task.status === 'open').length === 0 ? <div className="data-empty"><strong>Открытых задач нет</strong><span>Запланируйте осмотр или другую работу в разделе «Операции».</span><a href="#/operations" className="workspace-text-link">Создать задачу →</a></div> : <ul className="overview-task-list">{tasks.filter(task => task.status === 'open').sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3).map(task => <li key={task.id}><b>{task.title}</b><span>До {task.dueDate} · {task.assignee || 'Без ответственного'}</span><small>{task.priority === 'high' ? 'Высокий' : task.priority === 'medium' ? 'Средний' : 'Низкий'} приоритет</small></li>)}</ul>}
+              <a href="#/weather" className="overview-weather-link">Погода на 7 дней <span>{weather ? `${weather.days[0]?.tempMaxC ?? '—'}° днём · ${weather.days[0]?.precipitationMm ?? '—'} мм осадков в первый день прогноза` : weatherLoading ? 'Загружаем прогноз…' : 'Открыть прогноз и статус данных'} →</span></a>
+            </div></>}
+          </section>}
 
-          <LocationNotice status={locationStatus} onRequest={() => { setLocationStatus('idle') }} />
+          {active === 'fields' && <LocationNotice status={locationStatus} onRequest={() => { setLocationStatus('idle') }} />}
 
-          <section className="field-status panel">
+          {(active === 'fields' || active === 'overview') && <section className="field-status panel">
             <div className="panel-header">
                 <div><h2>Поля под контролем</h2><p>Параметры, собранный урожай и расходы — ввод агронома · дата обновления в паспорте поля</p></div>
               <button className="text-button" onClick={openNewFieldEditor}>＋ Добавить поле</button>
@@ -814,17 +803,21 @@ function App() {
               const harvest = Number(field.harvestTotalT || 0)
               const isActive = field.name === selectedField.name
               return (
-                <button className={isActive ? 'field-table-row active' : 'field-table-row'} key={`${field.name}-${index}`} onClick={() => setSelectedFieldName(field.name)}>
+                <div className="field-table-entry" key={field.id || `${field.name}-${index}`}>
+                <button className={isActive ? 'field-table-row active' : 'field-table-row'} aria-pressed={isActive} onClick={() => { setSelectedFieldName(field.name); if (active === 'overview') window.location.hash = '/fields' }}>
                   <span className="field-name"><i className="field-health healthy" /><span>{field.name}<small>{field.crop} · сев {field.sowingDate} · обновлено {formatDateTime(field.updatedAt)}</small></span></span>
                   <span data-label="Площадь">{field.areaHa} га</span>
                   <strong data-label="Собрано">{harvest.toLocaleString('ru-RU')} т</strong>
                   <span data-label="Урожайность" className="table-status healthy-text">{formatMeasurement(actualYield(field), 'т/га')}</span>
-                  <span className="row-arrow" onClick={(event) => { event.stopPropagation(); openFieldEditor(field.name) }}>✎</span>
+                  <span aria-hidden="true" />
                 </button>
+                <button className="field-row-edit" aria-label={`Редактировать поле «${field.name}»`} onClick={() => openFieldEditor(field.name)}>✎</button>
+                </div>
               )
             })}
-          </section>
+          </section>}
 
+          {active === 'analytics' && <>
           <SeasonHistoryPanel key={selectedField.id || selectedField.name} fieldId={selectedField.id} fieldName={selectedField.name} crop={selectedField.crop} areaHa={selectedField.plantedAreaHa || selectedField.areaHa} onChanged={() => setForecastRefresh((value) => value + 1)} />
 
           <section className="forecast-panel panel" id="yield-forecast">
@@ -836,11 +829,11 @@ function App() {
             </div> : <div className="data-empty"><strong>{forecastLoading ? 'Загружаем историю…' : 'Исторического ориентира пока нет'}</strong><span>{forecastError || visibleForecast?.reason || 'Добавьте минимум три завершённых сезона той же культуры в историю поля.'}</span></div>}
           </section>
 
-          <section className="lower-grid" id="growth-chart">
+          <section className="workspace-section-grid" id="growth-chart">
             <div className="chart-card panel">
               <div className="panel-header">
                 <div><h2>Индексы растительности</h2><p>{selectedField.name} · {indexName.toUpperCase()} · загруженные измерения по полю</p></div>
-                <div className="index-actions"><select aria-label="Период индекса" value={indexPeriod} onChange={(event) => setIndexPeriod(event.target.value as '7d' | '30d' | '90d')}><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="90d">90 дней</option></select><button className="text-button" onClick={() => void syncCdse()} disabled={!selectedField.id || cdseLoading}>{cdseLoading ? 'CDSE: расчёт…' : '🛰 Обновить из CDSE'}</button><button className="text-button" onClick={() => setImportOpen(true)} disabled={!selectedField.id}>＋ Загрузить CSV</button></div>
+                <div className="index-actions"><select aria-label="Индекс растительности" value={indexName} onChange={event => setLayer(event.target.value.toUpperCase())}><option value="ndvi">NDVI</option><option value="evi">EVI</option><option value="ndwi">NDWI</option></select><select aria-label="Период индекса" value={indexPeriod} onChange={(event) => setIndexPeriod(event.target.value as '7d' | '30d' | '90d')}><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="90d">90 дней</option></select><button className="text-button" onClick={() => void syncCdse()} disabled={!selectedField.id || cdseLoading}>{cdseLoading ? 'CDSE: расчёт…' : '🛰 Обновить из CDSE'}</button><button className="text-button" onClick={() => setImportOpen(true)} disabled={!selectedField.id}>＋ Загрузить CSV</button></div>
               </div>
               {cdseError && <p className="index-feedback error" role="alert">{cdseError}</p>}
               {cdseMessage && <p className="index-feedback" role="status">{cdseMessage}</p>}
@@ -853,7 +846,10 @@ function App() {
                 <p className="source-note">{visibleIndex.source}. Показано среднее значение по полю, а не карта зон. {visibleIndex.latest!.origin === 'cdse' ? `CDSE, версия обработки: ${visibleIndex.latest!.processingVersion || 'не указана'}. Дата обозначает дневной интервал расчёта, не время конкретного снимка.` : 'Измерение загружено пользователем и не проверено.'}{visibleIndex.latest!.cloudCoverPct !== null && visibleIndex.latest!.cloudCoverPct > 60 ? ' Высокая облачность: оценку следует перепроверить.' : ''}</p>
               </div> : <div className="data-empty"><strong>{indexLoading ? 'Загружаем измерения…' : `Нет измерений ${indexName.toUpperCase()} за ${indexPeriod}`}</strong><span>{indexError || (cdseError ? 'Обновление из CDSE не удалось: причина указана выше. Сохранённых измерений за выбранный период нет.' : 'Нажмите «Обновить из CDSE» для поля с точным контуром или загрузите CSV со значениями и источником.')}</span></div>}
             </div>
+          </section>
+          </>}
 
+          {active === 'weather' && <section className="workspace-section-grid">
             <div className="weather-card panel">
               <div className="panel-header">
                 <div><h2>Погода · {selectedField.name}</h2><p>{weather ? `${weather.source} · получено ${formatDateTime(weather.fetchedAt)} · ${weather.status === 'stale' ? 'сохранённый прогноз' : 'актуальный запрос'} · ${weather.coordinates.join(', ')}` : weatherLoading ? 'Загрузка по координатам поля…' : weatherError || 'Нет данных для этого поля'}</p></div>
@@ -869,13 +865,12 @@ function App() {
               {!weather && <div className="data-empty"><strong>{weatherLoading ? 'Загружаем прогноз…' : 'Нет погодных данных'}</strong><span>{weatherError || 'Добавьте координаты поля и обновите прогноз.'}</span></div>}
               {weather?.status === 'stale' && <div className="weather-alert"><span>!</span><div><b>Open-Meteo временно недоступен</b><small>Показан сохранённый прогноз от {formatDateTime(weather.fetchedAt)}. Проверьте дату перед планированием работ.</small></div></div>}
             </div>
-          </section>
-
-          <section className="decision-grid" id="risk-panel">
             <div className="risk-card panel">
               <div className="panel-header"><div><h2>Климатические риски</h2><p>Индексы риска для выбранного поля</p></div></div>
               <div className="data-empty"><strong>Нет оценки рисков</strong><span>Для расчёта нужны исторические данные и проверенная методика. Прогноз погоды сам по себе не является оценкой засухи или раннего снега.</span></div>
             </div>
+          </section>}
+          {active === 'operations' && <section className="workspace-section-grid">
             <div className="task-card panel">
               <div className="panel-header"><div><h2>Задачи поля</h2><p>{selectedField.name} · учёт агронома · PostgreSQL</p></div></div>
               {!selectedField.id ? <div className="data-empty"><strong>Задачи недоступны</strong><span>Войдите в аккаунт и сохраните поле, чтобы вести задачи.</span></div> : <>
@@ -889,9 +884,10 @@ function App() {
                   <label>Ответственный<input value={taskDraft.assignee} onChange={(event) => setTaskDraft((draft) => ({ ...draft, assignee: event.target.value }))} maxLength={80} placeholder="Имя сотрудника" /></label>
                   <button type="submit" className="task-add-button" disabled={taskSubmitting}>{taskSubmitting ? 'Сохранение…' : '＋ Создать задачу'}</button>
                 </form>
+                <div className="task-filters" role="group" aria-label="Статус задач">{(['open', 'done', 'all'] as const).map(filter => <button key={filter} aria-pressed={taskFilter === filter} onClick={() => setTaskFilter(filter)}>{filter === 'open' ? 'Активные' : filter === 'done' ? 'Выполненные' : 'Все'}{!tasksLoading && !tasksError ? ` (${tasks.filter(task => filter === 'all' || task.status === filter).length})` : ''}</button>)}</div>
                 {tasksError && <p className="task-error" role="alert">{tasksError}</p>}
-                {tasksLoading ? <p className="task-empty">Загружаем задачи…</p> : tasks.length === 0 ? <p className="task-empty">Для этого поля задач пока нет.</p> : <div className="task-list">
-                  {[...tasks].sort((left, right) => Number(left.status === 'done') - Number(right.status === 'done') || left.dueDate.localeCompare(right.dueDate)).map((task) => <div key={task.id} className={task.status === 'done' ? 'task-item completed' : 'task-item'}>
+                {tasksLoading ? <p className="task-empty">Загружаем задачи…</p> : tasks.filter(task => taskFilter === 'all' || task.status === taskFilter).length === 0 ? <p className="task-empty">В этом списке пока нет задач.</p> : <div className="task-list">
+                  {tasks.filter(task => taskFilter === 'all' || task.status === taskFilter).sort((left, right) => Number(left.status === 'done') - Number(right.status === 'done') || left.dueDate.localeCompare(right.dueDate)).map((task) => <div key={task.id} className={task.status === 'done' ? 'task-item completed' : 'task-item'}>
                     <button type="button" className="check-button" aria-label={task.status === 'done' ? `Вернуть задачу «${task.title}» в работу` : `Выполнить задачу «${task.title}»`} title={task.status === 'done' ? 'Вернуть в работу' : 'Отметить выполненной'} disabled={taskUpdatingId === task.id} onClick={() => void toggleTask(task)}>{task.status === 'done' ? '✓' : ''}</button>
                     <div><strong>{task.title}</strong><small>{task.section ? `${task.section} · ` : ''}до {task.dueDate} · {task.assignee || 'Без ответственного'}</small></div>
                     <span className={`task-priority ${task.priority}`}>{task.priority === 'high' ? 'Высокий' : task.priority === 'medium' ? 'Средний' : 'Низкий'}</span>
@@ -899,9 +895,9 @@ function App() {
                 </div>}
               </>}
             </div>
-          </section>
+          </section>}
 
-          <section className="economy-strip panel" id="economy-panel">
+          {active === 'economics' && <><section className="economy-strip panel" id="economy-panel">
             <div>
               <p className="eyebrow">ЭКОНОМИКА {selectedField.name.toUpperCase()}</p>
               <h2>{visibleForecast?.status === 'ready' ? 'Сценарная экономика поля' : 'Прямые затраты поля'}</h2>
@@ -920,6 +916,18 @@ function App() {
               <span>Сбор по медиане: {economics.expectedHarvest === null ? 'нет данных' : `${economics.expectedHarvest.toFixed(1)} т`}</span>
             </div>
           </section>
+          <section className="panel cost-breakdown"><div className="panel-header"><div><h2>Прямые затраты · {selectedField.name}</h2><p>Введённые расходы в тенге. Изменить значения можно в редакторе поля.</p></div></div><dl>{([
+            ['Семена', selectedField.seedCost], ['Топливо', selectedField.fuelUsedL * selectedField.fuelPricePerL], ['Полив и вода', selectedField.irrigationCost], ['Протрава и обработка', selectedField.treatmentCost], ['Удобрения', selectedField.fertilizerCost], ['Техника и работы', selectedField.machineryCost], ['Сушка и хранение', selectedField.storageCost], ['Прочие расходы', selectedField.otherCost],
+          ] as Array<[string, number]>).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value.toLocaleString('ru-RU')} ₸</dd></div>)}</dl></section></>}
+
+          {active === 'reports' && <section className="panel workspace-report">
+            <div className="panel-header"><div><h2>Отчёт по полю</h2><p>Выберите нужное поле в шапке и подготовьте документ.</p></div></div>
+            <div className="workspace-report-body"><div className="report-field-summary"><span className="eyebrow">ВЫБРАННОЕ ПОЛЕ</span><h3>{selectedField.name}</h3><p>{selectedField.crop} · {selectedField.areaHa} га · {selectedCompany.name}</p></div>
+              <h3>Что войдёт в отчёт</h3><ul><li>Схема контура и параметры поля</li><li>Индексы за 90 дней и графики доступных измерений</li><li>История сезонов и исторический ориентир урожая</li><li>Прямые затраты, прогноз погоды и открытые задачи</li><li>Источники, даты и ограничения данных</li></ul>
+              <p className="muted">HTML-файл можно открыть в браузере и сохранить как PDF через печать. Отсутствующие данные будут отмечены в отчёте.</p>
+              <button className="dark-button" onClick={() => setReportOpen(true)} disabled={tasksLoading || weatherLoading}>{tasksLoading || weatherLoading ? 'Загружаем данные поля…' : 'Подготовить отчёт'} <span>↓</span></button>
+            </div>
+          </section>}
 
           <footer className="page-footer"><span>SmartAgro AI Advisor · учёт полей и затрат</span><span>Погода · Open-Meteo; индексы · CDSE/CSV; исторический ориентир не гарантирует урожай</span></footer>
         </div>
