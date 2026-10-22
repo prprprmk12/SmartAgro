@@ -1,5 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import YandexFieldMap from './FieldMap'
+import SyncStatus from './SyncStatus'
+import { rasterDataUrl } from './reportRaster'
+import type { ReportMap } from './report'
+import type { IndexRaster } from './IndexMapPanel'
 import { IndexMapPanel, useIndexMap } from './IndexMapPanel'
 import Navigation, { FieldPicker, sections, useSectionNavigation } from './Navigation'
 import { buildFieldReportHtml } from './report'
@@ -761,6 +765,7 @@ function App() {
                 <YandexFieldMap fields={fieldRecords.map((field) => field.name)} customFields={[]} selectedField={selectedField.name} userLocation={userLocation} fieldPoints={fieldRecords.map((field) => field.coordinates)} fieldAreas={fieldRecords.map((field) => field.areaHa)} fieldBoundaries={fieldRecords.map((field) => field.boundary)} layer={layer} indexRaster={indexMap.data} onSelectField={setSelectedFieldName} />
                 <div className="layer-switcher">{['Спутник', 'Топография', 'NDVI', 'EVI', 'NDWI'].map((item) => <button className={layer === item ? 'selected' : ''} aria-pressed={layer === item} key={item} onClick={() => setLayer(item)}>{item}</button>)}</div>
               </div>
+              <SyncStatus fieldId={selectedField.id} refresh={indexRefresh} onUpdated={() => setIndexRefresh(value => value + 1)} />
               <IndexMapPanel state={indexMap} onSync={() => void syncCdse()} syncBusy={cdseLoading} syncError={cdseError} />
             </div>}
 
@@ -836,6 +841,7 @@ function App() {
                 <div className="index-actions"><select aria-label="Индекс растительности" value={indexName} onChange={event => setLayer(event.target.value.toUpperCase())}><option value="ndvi">NDVI</option><option value="evi">EVI</option><option value="ndwi">NDWI</option></select><select aria-label="Период индекса" value={indexPeriod} onChange={(event) => setIndexPeriod(event.target.value as '7d' | '30d' | '90d')}><option value="7d">7 дней</option><option value="30d">30 дней</option><option value="90d">90 дней</option></select><button className="text-button" onClick={() => void syncCdse()} disabled={!selectedField.id || cdseLoading}>{cdseLoading ? 'CDSE: расчёт…' : '🛰 Обновить из CDSE'}</button><button className="text-button" onClick={() => setImportOpen(true)} disabled={!selectedField.id}>＋ Загрузить CSV</button></div>
               </div>
               {cdseError && <p className="index-feedback error" role="alert">{cdseError}</p>}
+              <SyncStatus fieldId={selectedField.id} refresh={indexRefresh} onUpdated={() => setIndexRefresh(value => value + 1)} />
               {cdseMessage && <p className="index-feedback" role="status">{cdseMessage}</p>}
               {visibleIndex?.series.length ? <div className="index-content">
                 <div className="index-summary"><strong>{visibleIndex.latest!.value.toFixed(3)} <small>{indexName.toUpperCase()}</small></strong><span>Последнее измерение: {visibleIndex.latest!.date} · {visibleIndex.latest!.source} · сохранено {formatDateTime(visibleIndex.latest!.ingestedAt)}{visibleIndex.latest!.cloudCoverPct !== null ? ` · облачность ${visibleIndex.latest!.cloudCoverPct}%` : ''}{visibleIndex.latest!.validPixelPct != null ? ` · валидные пиксели ${visibleIndex.latest!.validPixelPct}%` : ''}</span></div>
@@ -923,7 +929,7 @@ function App() {
           {active === 'reports' && <section className="panel workspace-report">
             <div className="panel-header"><div><h2>Отчёт по полю</h2><p>Выберите нужное поле в шапке и подготовьте документ.</p></div></div>
             <div className="workspace-report-body"><div className="report-field-summary"><span className="eyebrow">ВЫБРАННОЕ ПОЛЕ</span><h3>{selectedField.name}</h3><p>{selectedField.crop} · {selectedField.areaHa} га · {selectedCompany.name}</p></div>
-              <h3>Что войдёт в отчёт</h3><ul><li>Схема контура и параметры поля</li><li>Индексы за 90 дней и графики доступных измерений</li><li>История сезонов и исторический ориентир урожая</li><li>Прямые затраты, прогноз погоды и открытые задачи</li><li>Источники, даты и ограничения данных</li></ul>
+              <h3>Что войдёт в отчёт</h3><ul><li>Контур, выбранный слой NDVI/NDWI/EVI и легенда</li><li>Рекомендации по данным поля и три сценария экономики</li><li>Индексы за 90 дней и графики доступных измерений</li><li>История сезонов и исторический ориентир урожая</li><li>Прямые затраты, прогноз погоды и открытые задачи</li><li>Источники, даты и ограничения данных</li></ul>
               <p className="muted">HTML-файл можно открыть в браузере и сохранить как PDF через печать. Отсутствующие данные будут отмечены в отчёте.</p>
               <button className="dark-button" onClick={() => setReportOpen(true)} disabled={tasksLoading || weatherLoading}>{tasksLoading || weatherLoading ? 'Загружаем данные поля…' : 'Подготовить отчёт'} <span>↓</span></button>
             </div>
@@ -937,7 +943,7 @@ function App() {
       {profileOpen && <ProfilePanel name={agronomistName} company={selectedCompany.name} role={currentUser?.role || 'agronomist'} onClose={() => setProfileOpen(false)} onManageTeam={() => { setProfileOpen(false); setTeamOpen(true) }} onManagePhotos={() => { setProfileOpen(false); setPhotoMigrationOpen(true) }} onLogout={logout} />}
       {teamOpen && currentUser?.role === 'owner' && <TeamPanel company={selectedCompany.name} currentUserId={currentUser.id} onClose={() => setTeamOpen(false)} />}
       {photoMigrationOpen && currentUser?.role === 'owner' && <PhotoMigrationPanel onClose={() => setPhotoMigrationOpen(false)} onComplete={() => void loadFields()} />}
-      {reportOpen && <ReportPanel company={selectedCompany.name} field={selectedField} weather={weather} tasks={tasks} tasksError={tasksError} onClose={() => setReportOpen(false)} />}
+      {reportOpen && <ReportPanel initialLayer={indexName} company={selectedCompany.name} field={selectedField} weather={weather} tasks={tasks} tasksError={tasksError} onClose={() => setReportOpen(false)} />}
       {importOpen && selectedField.id && <IndexImportPanel key={selectedField.id} fieldId={selectedField.id} fieldName={selectedField.name} onClose={() => setImportOpen(false)} onImported={(index) => { setLayer(index.toUpperCase()); setIndexRefresh((value) => value + 1); setImportOpen(false) }} />}
       {chatOpen && <AIChat field={selectedField} onClose={() => setChatOpen(false)} />}
       {fieldInfoOpen && <FieldInfoPanel field={selectedField} onClose={() => setFieldInfoOpen(false)} />}
@@ -964,7 +970,8 @@ function ProfilePanel({ name, company, role, onClose, onLogout, onManageTeam, on
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><div className="profile-large">{getInitials(name)}</div><p className="eyebrow green-text">ПРОФИЛЬ</p><h2>{name}</h2><p className="profile-company">{company}</p><div className="profile-details"><span><small>Область</small><b>Акмолинская область</b></span><span><small>Роль</small><b>{role === 'owner' ? 'Владелец ТОО' : 'Агроном'}</b></span></div>{role === 'owner' && <><button className="outline-button profile-button" onClick={onManageTeam}>Сотрудники и приглашения</button><button className="outline-button profile-button" onClick={onManagePhotos}>Перенести старые фото</button></>}{error && <p className="form-error" role="alert">{error}</p>}<button className="outline-button profile-button" onClick={() => void leave()} disabled={leaving}>{leaving ? 'Выходим…' : 'Выйти из аккаунта'}</button></div></div>
 }
 
-function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { company: string; field: FieldRecord; weather: WeatherForecast | null; tasks: FieldTask[]; tasksError: string; onClose: () => void }) {
+function ReportPanel({ company, field, weather, tasks, tasksError, onClose, initialLayer }: { initialLayer: IndexName; company: string; field: FieldRecord; weather: WeatherForecast | null; tasks: FieldTask[]; tasksError: string; onClose: () => void }) {
+  const [reportLayer, setReportLayer] = useState<IndexName>(initialLayer)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const download = async () => {
@@ -977,7 +984,18 @@ function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { 
         authenticatedRequest<SeasonRecord[]>(`/api/fields/${encodeURIComponent(field.id)}/seasons`),
         authenticatedRequest<ForecastResult>(`/api/fields/${encodeURIComponent(field.id)}/yield-forecast`),
       ]) : [[], [] as SeasonRecord[], null]
-      const report = buildFieldReportHtml(company, field, weather, tasks, new Date(), !field.id ? 'поле не сохранено на сервере' : tasksError || null, indices, seasons, forecast)
+      const reportMap: ReportMap = { layer: reportLayer.toUpperCase() }
+      if (field.id && field.boundary?.length) {
+        try {
+          const raster = await authenticatedRequest<IndexRaster>(`/api/fields/${encodeURIComponent(field.id)}/map?layer=${reportLayer}`)
+          reportMap.raster = raster
+          if (raster.status === 'ready') reportMap.image = rasterDataUrl(raster)
+        } catch (cause) {
+          if (cause instanceof SessionExpiredError) throw cause
+          reportMap.error = cause instanceof Error ? cause.message : 'Не удалось загрузить слой'
+        }
+      } else reportMap.error = 'Для слоя нужно сохранённое поле с точным контуром'
+      const report = buildFieldReportHtml(company, field, weather, tasks, new Date(), !field.id ? 'поле не сохранено на сервере' : tasksError || null, indices, seasons, forecast, reportMap)
       const url = URL.createObjectURL(new Blob([report], { type: 'text/html;charset=utf-8' }))
       const link = document.createElement('a')
       link.href = url
@@ -990,7 +1008,7 @@ function ReportPanel({ company, field, weather, tasks, tasksError, onClose }: { 
       setGenerating(false)
     }
   }
-  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ ПО ПОЛЮ</p><h2>{field.name}</h2><p>Отчёт содержит контур, историю сезонов, исторический ориентир, учёт затрат, загруженные индексы за 90 дней, погоду и открытые задачи. Отсутствующие данные отмечены отдельно.</p><div className="report-preview"><b>{company}</b><span>{field.crop} · {field.areaHa} га</span><span>Погода: {weather ? `${weather.source} · ${formatDateTime(weather.fetchedAt)}` : 'нет данных'}</span><span>{tasksError || !field.id ? 'Задачи: нет данных' : `Открытых задач: ${tasks.filter((task) => task.status === 'open').length}`}</span></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="dark-button" disabled={generating} onClick={() => void download()}>{generating ? 'Собираем показатели…' : 'Скачать HTML-отчёт'} <span>↓</span></button></div></div>
+  return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}><button className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ОТЧЁТ ПО ПОЛЮ</p><h2>{field.name}</h2><p>Отчёт содержит контур, выбранную карту индекса с легендой, рекомендации по правилам, три сценария экономики, историю сезонов, индексы за 90 дней, погоду и задачи. Отсутствующие данные отмечены отдельно.</p><label className="form-label">Слой для отчёта<select className="form-input" value={reportLayer} disabled={generating} onChange={event => setReportLayer(event.target.value as IndexName)}><option value="ndvi">NDVI</option><option value="ndwi">NDWI</option><option value="evi">EVI</option></select></label><div className="report-preview"><b>{company}</b><span>{field.crop} · {field.areaHa} га</span><span>Погода: {weather ? `${weather.source} · ${formatDateTime(weather.fetchedAt)}` : 'нет данных'}</span><span>{tasksError || !field.id ? 'Задачи: нет данных' : `Открытых задач: ${tasks.filter((task) => task.status === 'open').length}`}</span></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="dark-button" disabled={generating} onClick={() => void download()}>{generating ? 'Собираем показатели…' : 'Скачать HTML-отчёт'} <span>↓</span></button></div></div>
 }
 
 function IndexImportPanel({ fieldId, fieldName, onClose, onImported }: { fieldId: string; fieldName: string; onClose: () => void; onImported: (index: IndexName) => void }) {

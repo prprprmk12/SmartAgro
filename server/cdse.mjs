@@ -31,7 +31,13 @@ async function providerError(response, stage) {
     const body = JSON.parse(raw)
     details = body?.error?.message || body?.error?.reason || body?.error_description || body?.message || (typeof body?.error === 'string' ? body.error : null)
   } catch { /* Some upstream errors return plain text. */ }
-  return new CdseError(stage, response.status, safeReason(details || (raw.startsWith('<') ? response.statusText : raw) || response.statusText))
+  const error = new CdseError(stage, response.status, safeReason(details || (raw.startsWith('<') ? response.statusText : raw) || response.statusText))
+  const retry = response.headers.get('retry-after')
+  if (retry) {
+    const delay = /^\d+$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()
+    if (Number.isFinite(delay) && delay > 0) error.retryAfterMs = delay
+  }
+  return error
 }
 
 async function fetchProvider(url, options, stage) {

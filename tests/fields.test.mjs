@@ -378,6 +378,11 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.doesNotMatch(JSON.stringify(authFailure.data), /mock-secret/)
     assert.equal(cdseCalls, 0)
     failCdseToken = false
+    assert.equal((await request(`${cdsePath}/sync-status`, 'GET', second.token)).status, 404)
+    assert.equal((await request(`${cdsePath}/sync-status`, 'GET', first.token)).data.status, 'error')
+    assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 429, 'failed attempts also back off')
+    // A genuinely changed contour can be calculated without waiting for the old contour.
+    assert.equal((await request(`/api/fields/${cdseField.data.id}`, 'PUT', first.token, { ...field, name: 'CDSE field', coordinates: [51.405, 71.505], boundary: [[51.4001, 71.5], [51.4001, 71.51], [51.41, 71.51], [51.41, 71.5]] })).status, 200)
     const synced = await request(`${cdsePath}/sync`, 'POST', first.token)
     assert.equal(synced.status, 200)
     assert.equal(synced.data.imported, 3)
@@ -423,6 +428,8 @@ test('authenticated companies isolate fields and roles; invitations and sessions
     assert.equal(statsFailure.data.cdseStatus, 400)
     assert.match(statsFailure.data.error, /Invalid bounds or resolution/)
     failCdseStatistics = false
+    assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 429)
+    assert.equal((await request(`/api/fields/${cdseField.data.id}`, 'PUT', first.token, { ...field, name: 'CDSE field', coordinates: [51.406, 71.506], boundary: [[51.402, 71.501], [51.402, 71.511], [51.411, 71.511], [51.411, 71.501]] })).status, 200)
     assert.equal((await request(`${cdsePath}/sync`, 'POST', first.token)).status, 200)
     assert.equal(cdseCalls, 3)
     const updatedMap = await request(mapPath, 'GET', first.token)

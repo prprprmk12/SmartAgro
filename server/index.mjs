@@ -6,8 +6,9 @@ import { makePostgresPool, initializePostgres, createPostgresDatabase } from './
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createCdseSync, SyncBusyError } from './cdseSync.mjs'
 import { fetchWeather } from './weather.mjs'
-import { CdseError, fetchCdseMeasurements, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
+import { CdseError, geometryFromBoundary, isCdseConfigured, cdseSource } from './cdse.mjs'
 import { hashPassword, verifyPassword } from './passwords.mjs'
 import { migrateRoles } from './roles.mjs'
 import { forecastFromHistory } from './yieldForecast.mjs'
@@ -167,8 +168,7 @@ async function start() {
   const seasons = db.collection('seasons')
   const tasks = db.collection('tasks')
   const indexMeasurements = db.collection('indexMeasurements')
-  const cdseSyncs = db.collection('cdseSyncs')
-  const cdseInFlight = new Set()
+  const cdseSync = createCdseSync(db)
   const indexMaps = db.collection('indexMaps')
   const mapsInFlight = new Map()
   const sessions = db.collection('sessions')
@@ -464,6 +464,13 @@ async function start() {
     res.status(201).json({ imported: measurements.length, ingestedAt: now.toISOString() })
   })
 
+  app.get('/api/fields/:fieldId/indices/sync-status', requireUser, async (req, res) => {
+    if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
+    const field = await fields.findOne({ _id: new ObjectId(req.params.fieldId), companyId: req.user.companyId })
+    if (!field) return res.status(404).json({ error: 'Поле не найдено' })
+    res.json(await cdseSync.status(field))
+  })
+
   app.post('/api/fields/:fieldId/indices/sync', requireUser, async (req, res) => {
     if (!ObjectId.isValid(req.params.fieldId)) return res.status(400).json({ error: 'Некорректный fieldId' })
     const fieldId = new ObjectId(req.params.fieldId)
@@ -471,27 +478,10 @@ async function start() {
     if (!field) return res.status(404).json({ error: 'Поле не найдено' })
     try { geometryFromBoundary(field.boundary) } catch (error) { return res.status(422).json({ error: error.message }) }
     if (!isCdseConfigured()) return res.status(503).json({ error: 'CDSE не настроен. Укажите CDSE_CLIENT_ID и CDSE_CLIENT_SECRET на Railway.' })
-    const geometryHash = crypto.createHash('sha256').update(JSON.stringify(field.boundary)).digest('hex')
-    const existingSync = await cdseSyncs.findOne({ companyId: req.user.companyId, fieldId })
-    const nextAllowedAt = existingSync && existingSync.geometryHash === geometryHash ? new Date(existingSync.lastSyncAt).getTime() + 6 * 60 * 60 * 1000 : 0
-    if (Date.now() < nextAllowedAt) return res.status(429).json({ error: `CDSE уже обновлялся для этого контура. Повторите после ${new Date(nextAllowedAt).toISOString()}.`, nextAllowedAt: new Date(nextAllowedAt).toISOString() })
-    if (cdseInFlight.has(fieldId.toString())) return res.status(429).json({ error: 'Расчёт CDSE для этого поля уже выполняется.' })
-    cdseInFlight.add(fieldId.toString())
     try {
-      const measurements = await fetchCdseMeasurements(field.boundary)
-      const now = new Date()
-      for (const item of measurements) {
-        const filter = { companyId: req.user.companyId, fieldId, index: item.index, date: item.date, source: item.source }
-        const previous = await indexMeasurements.findOne(filter)
-        const data = { value: item.value, cloudCoverPct: null, validPixelPct: item.validPixelPct, origin: 'cdse', processingVersion: item.processingVersion, geometryHash, ingestedAt: now }
-        if (previous) await indexMeasurements.updateMany({ _id: previous._id, companyId: req.user.companyId }, { $set: data })
-        else await indexMeasurements.insertOne({ ...filter, ...data })
-      }
-      const syncData = { lastSyncAt: now, geometryHash, imported: measurements.length }
-      if (existingSync) await cdseSyncs.updateMany({ _id: existingSync._id, companyId: req.user.companyId }, { $set: syncData })
-      else await cdseSyncs.insertOne({ companyId: req.user.companyId, fieldId, ...syncData })
-      res.json({ imported: measurements.length, checkedAt: now.toISOString(), source: cdseSource, nextAllowedAt: new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString() })
+      res.json(await cdseSync.sync(field))
     } catch (error) {
+      if (error instanceof SyncBusyError) return res.status(429).json({ error: error.message, nextAllowedAt: error.nextAllowedAt })
       const requestId = crypto.randomUUID()
       if (error instanceof CdseError) {
         console.error('CDSE sync failed:', { requestId, stage: error.stage, status: error.status, reason: error.reason })
@@ -505,8 +495,6 @@ async function start() {
       }
       console.error('CDSE sync failed:', { requestId, stage: 'internal', type: error?.name || 'Error' })
       res.status(500).json({ error: `Не удалось сохранить ответ CDSE. Код запроса: ${requestId}. Проверьте журнал сервера.`, requestId })
-    } finally {
-      cdseInFlight.delete(fieldId.toString())
     }
   })
 
@@ -810,6 +798,7 @@ async function start() {
     })
   }
 
+  cdseSync.start()
   app.listen(port, '0.0.0.0', () => console.log(`SmartAgro listening on port ${port}`))
 }
 
