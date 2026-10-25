@@ -30,6 +30,4 @@ databases:
     region: frankfurt
     plan: free
     postgresMajorVersion: "17"
-    databaseName: smartagro
-    user: smartagro
     ipAllowList: []
