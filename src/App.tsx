@@ -1307,7 +1307,7 @@ function FieldEditorModal({ field, existingFields, onClose, onSave }: { field?: 
         if (!active) return
         setStorageAvailable(status.photoStorageConfigured)
         setVisionStatus(status.visionConfigured ? 'available' : 'unavailable')
-        setVisionMessage(!status.visionConfigured ? 'Фотоанализ не настроен. Добавьте OPENAI_API_KEY на backend в Railway.' : !status.photoStorageConfigured ? `Ключ OpenAI указан · ${status.model}. Новые фото можно проанализировать, но для сохранения результата нужен Storage Bucket.` : `Ключ OpenAI указан · модель ${status.model}. Доступ будет проверен при анализе.`)
+        setVisionMessage(!status.visionConfigured ? 'Фотоанализ не настроен. Добавьте OPENAI_API_KEY в переменные backend-сервиса.' : !status.photoStorageConfigured ? `Ключ OpenAI указан · ${status.model}. Новые фото можно проанализировать, но для сохранения результата нужен Storage Bucket.` : `Ключ OpenAI указан · модель ${status.model}. Доступ будет проверен при анализе.`)
       })
       .catch((cause) => {
         if (!active || cause instanceof SessionExpiredError) return

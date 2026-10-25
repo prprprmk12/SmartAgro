@@ -18,7 +18,7 @@ export default function PhotoMigrationPanel({ onClose, onComplete }: { onClose: 
   }
   return <div className="chat-overlay" onClick={onClose}><div className="chat-panel utility-panel" onClick={(event) => event.stopPropagation()}>
     <button type="button" className="close-chat" onClick={onClose}>×</button><p className="eyebrow green-text">ФОТО ХОЗЯЙСТВА</p><h2>Перенести сохранённые фото</h2>
-    <p>После подключения приватного Railway Bucket эта операция перенесёт фотографии полей и снимки из истории анализов вашего хозяйства. В PostgreSQL останутся только идентификаторы. Если перенос прервётся, повторный запуск продолжит работу с оставшимися фото.</p>
+    <p>После подключения приватного S3-совместимого хранилища эта операция перенесёт фотографии полей и снимки из истории анализов вашего хозяйства. В PostgreSQL останутся только идентификаторы. Если перенос прервётся, повторный запуск продолжит работу с оставшимися фото.</p>
     {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="team-info" role="status">{message}</p>}
     <button type="button" className="dark-button" onClick={() => void migrate()} disabled={loading}>{loading ? 'Переносим фото…' : 'Перенести фото в хранилище'} <span>→</span></button>
   </div></div>

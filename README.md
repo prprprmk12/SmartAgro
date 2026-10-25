@@ -24,6 +24,10 @@ Production-проверка:
 npm run build
 ```
 
+## Публикация на Northflank
+
+Пошаговая настройка новой PostgreSQL и единого Docker-сервиса: [NORTHFLANK.md](NORTHFLANK.md). Файлы `Dockerfile` и `.dockerignore` находятся в корне проекта.
+
 ## Публикация на Railway
 
 Один Railway-сервис запускает Express API и отдаёт собранный frontend с того же домена. Отдельный frontend-сервис и `VITE_API_URL` не нужны.

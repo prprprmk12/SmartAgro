@@ -23,7 +23,7 @@ export function photoStorageConfigured() {
 }
 
 function storage() {
-  if (!photoStorageConfigured()) throw new PhotoStorageError('Хранилище фото не настроено. Добавьте S3-переменные Railway Bucket в backend.', 503)
+  if (!photoStorageConfigured()) throw new PhotoStorageError('Хранилище фото не настроено. Добавьте S3-переменные приватного хранилища в backend.', 503)
   if (!client) client = new S3Client({
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,

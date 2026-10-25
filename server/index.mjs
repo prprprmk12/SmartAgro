@@ -477,7 +477,7 @@ async function start() {
     const field = await fields.findOne({ _id: fieldId, companyId: req.user.companyId })
     if (!field) return res.status(404).json({ error: 'Поле не найдено' })
     try { geometryFromBoundary(field.boundary) } catch (error) { return res.status(422).json({ error: error.message }) }
-    if (!isCdseConfigured()) return res.status(503).json({ error: 'CDSE не настроен. Укажите CDSE_CLIENT_ID и CDSE_CLIENT_SECRET на Railway.' })
+    if (!isCdseConfigured()) return res.status(503).json({ error: 'CDSE не настроен. Укажите CDSE_CLIENT_ID и CDSE_CLIENT_SECRET в переменных backend-сервиса.' })
     try {
       res.json(await cdseSync.sync(field))
     } catch (error) {
@@ -711,9 +711,9 @@ async function start() {
     if (requested.some((image) => !isPhotoValue(image))) return res.status(400).json({ error: 'Поддерживаются только сохранённые фото поля или JPG, PNG и WEBP' })
     const permitted = new Set(photoValues(field))
     if (requested.some((image) => isPhotoReference(image) && !permitted.has(image))) return res.status(404).json({ error: 'Фото не найдено у этого поля' })
-    if (!photoStorageConfigured() && requested.some(isPhotoReference)) return res.status(503).json({ error: 'Сохранённое фото нельзя прочитать без приватного Storage Bucket. Настройте S3-переменные в Railway.' })
+    if (!photoStorageConfigured() && requested.some(isPhotoReference)) return res.status(503).json({ error: 'Сохранённое фото нельзя прочитать без приватного Storage Bucket. Настройте S3-переменные в переменных backend-сервиса.' })
     for (const image of requested) if (!isPhotoReference(image)) decodePhoto(image)
-    if (!openAiVisionApiKey) return res.status(503).json({ error: 'Фотоанализ OpenAI не настроен: добавьте OPENAI_API_KEY в Variables backend-сервиса Railway.', code: 'OPENAI_NOT_CONFIGURED' })
+    if (!openAiVisionApiKey) return res.status(503).json({ error: 'Фотоанализ OpenAI не настроен: добавьте OPENAI_API_KEY в переменные backend-сервиса.', code: 'OPENAI_NOT_CONFIGURED' })
     const systemPrompt = `Ты AI-агроном SmartAgro. Анализируй только состояние культуры на фотографиях поля. Не утверждай то, чего нельзя надежно увидеть на снимке, не ставь диагноз и не назначай препараты или дозировки. Сравнивай текущие фото с историей этого же поля, если она передана, и явно отмечай динамику: улучшение, ухудшение или без заметных изменений. Ответь на русском кратко в формате:
 Наблюдения: что видно на фото.
 Риски: возможные признаки стресса, сорняков, болезней или вредителей с пометкой "требует проверки", если уверенность недостаточна.
@@ -735,7 +735,7 @@ async function start() {
       }
       console.error('Photo analysis failed:', { requestId, stage: error.stage, status: error.status, reason: error.reason })
       const status = error.status === 429 ? 429 : error.stage === 'network' ? 504 : 502
-      const description = error.status === 401 ? 'OpenAI отклонил ключ OPENAI_API_KEY (HTTP 401). Проверьте ключ в Railway.'
+      const description = error.status === 401 ? 'OpenAI отклонил ключ OPENAI_API_KEY (HTTP 401). Проверьте ключ в переменных backend-сервиса.'
         : error.status === 403 ? 'У ключа OpenAI нет доступа к выбранной модели (HTTP 403).'
           : error.status === 429 ? 'OpenAI ограничил запросы или исчерпан доступный лимит (HTTP 429).'
             : error.status === 400 ? 'OpenAI отклонил модель или изображение (HTTP 400).'
