@@ -1,4 +1,5 @@
 export const weatherBaseUrl = process.env.OPEN_METEO_BASE_URL || 'https://api.open-meteo.com'
+let retryAt = 0
 
 export function normalizeWeather(payload, coordinates, fetchedAt = new Date().toISOString()) {
   const daily = payload?.daily
@@ -20,6 +21,7 @@ export function normalizeWeather(payload, coordinates, fetchedAt = new Date().to
 }
 
 export async function fetchWeather(coordinates, signal = AbortSignal.timeout(8000)) {
+  if (Date.now() < retryAt) throw new Error('Open-Meteo rate limit cooldown')
   const url = new URL('/v1/forecast', weatherBaseUrl)
   url.searchParams.set('latitude', String(coordinates[0]))
   url.searchParams.set('longitude', String(coordinates[1]))
@@ -27,6 +29,11 @@ export async function fetchWeather(coordinates, signal = AbortSignal.timeout(800
   url.searchParams.set('timezone', 'auto')
   url.searchParams.set('forecast_days', '7')
   const response = await fetch(url, { signal })
+  if (response.status === 429) {
+    const header = response.headers.get('Retry-After')
+    const delay = header && /^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header || '') - Date.now()
+    retryAt = Date.now() + Math.max(15 * 60_000, Number.isFinite(delay) ? delay : 0)
+  }
   if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`)
   return normalizeWeather(await response.json(), coordinates)
 }

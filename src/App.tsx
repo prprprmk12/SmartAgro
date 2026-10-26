@@ -17,6 +17,7 @@ import ProtectedPhoto from './ProtectedPhoto'
 import FieldInfoPanel from './FieldInfoPanel'
 import PhotoMigrationPanel from './PhotoMigrationPanel'
 import { readAuthenticatedResponse, SessionExpiredError } from './session'
+import { fetchBrowserWeather, type WeatherForecast } from './weather'
 
 type FieldRecord = {
   id?: string
@@ -58,8 +59,6 @@ type FieldAnalysis = {
 
 type Company = { id?: string; name: string; region: string; location: string; fields: string[] }
 type UserRecord = { id: string; name: string; email: string; companyId: string; role: 'owner' | 'agronomist' }
-type WeatherDay = { date: string; tempMaxC: number | null; tempMinC: number | null; precipitationMm: number | null; rainProbabilityPct: number | null; windMaxKmh: number | null; humidityPct: number | null; weatherCode: number | null }
-type WeatherForecast = { source: string; fetchedAt: string; status: 'current' | 'stale'; coordinates: [number, number]; days: WeatherDay[] }
 type FieldTask = { id: string; fieldId: string; title: string; section: string; priority: 'low' | 'medium' | 'high'; dueDate: string; assignee: string; status: 'open' | 'done'; createdAt: string; updatedAt: string }
 
 async function authenticatedRequest<T>(path: string, method = 'GET', body?: object): Promise<T> {
@@ -654,7 +653,15 @@ function App() {
     if (!selectedField.id || !authenticated || isDemoUser()) { setWeatherLoading(false); return }
     setWeatherLoading(true)
     fetch(`/api/weather?field_id=${encodeURIComponent(selectedField.id)}${weatherRefresh ? '&refresh=1' : ''}`, { headers: { Authorization: `Bearer ${localStorage.getItem('smartagro-token') || ''}` } })
-      .then((response) => readAuthenticatedResponse<WeatherForecast>(response))
+      .then(async (response) => {
+        // Only provider unavailability permits fallback; auth and field errors remain errors.
+        if (response.status === 503 && selectedField.coordinates) return fetchBrowserWeather(selectedField.coordinates)
+        const forecast = await readAuthenticatedResponse<WeatherForecast>(response)
+        if (forecast.status === 'stale' && selectedField.coordinates) {
+          try { return await fetchBrowserWeather(selectedField.coordinates) } catch { return forecast }
+        }
+        return forecast
+      })
       .then((data) => { if (!cancelled) setWeather(data) })
       .catch((error) => { if (!cancelled) setWeatherError(error instanceof Error ? error.message : 'Прогноз недоступен') })
       .finally(() => { if (!cancelled) setWeatherLoading(false) })
