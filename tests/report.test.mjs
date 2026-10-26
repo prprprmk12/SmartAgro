@@ -12,6 +12,13 @@ const now = new Date('2026-10-22T00:00:00Z')
 const history = [2023, 2024, 2025].map((year, i) => ({ year, crop: 'Пшеница', plantedAreaHa: 100, harvestTotalT: (i + 1) * 100, source: 'Журнал' }))
 const forecast = forecastFromHistory(field, history, now)
 const raster = { status: 'ready', index: 'ndvi', date: '2026-10-20', source: 'CDSE', processingVersion: 'test-v1', fetchedAt: now.toISOString(), validPixelPct: 90, resolutionM: 20, note: 'SCL', legend: [{ min: 0.5, max: 1, color: '#358552', label: 'Высокий', percent: 80 }] }
+
+test('report embeds an offline basemap instead of the outline sketch', { skip: !supported }, () => {
+  const html = reportModule.buildFieldReportHtml('Ферма', { ...field, boundary: [[51, 71], [51.1, 71], [51, 71.1]] }, null, [], now, null, [], [], null, { layer: 'NDVI', basemapImage: 'data:image/png;base64,AAAA' })
+  assert.match(html, /Спутниковая карта расположения поля/)
+  assert.match(html, /Esri World Imagery/)
+  assert.doesNotMatch(html, /Схема внесённого контура/)
+})
 test('report embeds selected raster, provenance and three computed financial scenarios safely', { skip: !supported }, () => {
   const html = reportModule.buildFieldReportHtml('Ферма', field, null, [], now, null, [], [], forecast, { layer: 'NDVI', raster, image: 'data:image/png;base64,AAAA' })
   assert.match(html, /src="data:image\/png;base64,AAAA"/)

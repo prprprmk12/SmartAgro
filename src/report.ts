@@ -3,7 +3,7 @@ import type { SeasonRecord } from './seasons'
 import type { ForecastResult } from './forecast'
 import type { IndexRaster } from './IndexMapPanel'
 
-export type ReportMap = { layer: string; raster?: IndexRaster; image?: string; error?: string }
+export type ReportMap = { layer: string; raster?: IndexRaster; image?: string; error?: string; basemapImage?: string }
 
 type Point = [number, number]
 
@@ -51,10 +51,11 @@ const measure = (value: number | null, unit: string) => value === null ? 'Нет
 const date = (value?: string) => value ? new Date(value).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }) : 'Дата не указана'
 const numberOrDash = (value: number | null, unit: string) => value === null ? '—' : `${value} ${unit}`
 
-function fieldMap(field: ReportField) {
+function fieldMap(field: ReportField, map?: ReportMap) {
   const center = field.coordinates
   const link = center && center.every(Number.isFinite) ? `<a href="https://www.openstreetmap.org/?mlat=${center[0]}&mlon=${center[1]}#map=14/${center[0]}/${center[1]}" target="_blank" rel="noopener noreferrer">Открыть расположение в OpenStreetMap</a>` : 'Координаты не указаны'
   const points = field.boundary
+  if (map?.basemapImage && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(map.basemapImage)) return `<img src="${map.basemapImage}" alt="Спутниковая карта расположения поля" style="display:block;width:100%;height:auto;border-radius:6px" /><p>${points && points.length >= 3 ? 'Жёлтой линией отмечена граница поля.' : 'Отмечен центр поля; точный контур не задан.'} Север — сверху. ${link}</p><p class="source">Подложка: Esri World Imagery. Дата съёмки подложки не определена; это карта расположения, а не снимок текущего состояния посевов.</p>`
   if (!points || points.length < 3) return `<p>Точный контур поля не загружен. ${link}</p>`
   const latitudes = points.map(([lat]) => lat)
   const longitudes = points.map(([, lon]) => lon)
@@ -119,7 +120,7 @@ export function buildFieldReportHtml(company: string, field: ReportField, weathe
     body{font-family:Arial,sans-serif;max-width:960px;margin:30px auto;padding:0 22px;color:#24392e;line-height:1.5}h1,h2{color:#24553a}h1{margin-bottom:0}small,.source{color:#647c6b}section{padding:12px 0;border-bottom:1px solid #dce8db}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{padding:8px;border:1px solid #dce8db;text-align:left;font-size:13px}th{background:#edf5ea}.note{padding:12px;background:#fff6df;border-radius:6px}a{color:#285f45}@media print{body{margin:0}section{break-inside:avoid}a{color:#24392e}}
   </style></head><body>
     <header><small>SmartAgro AI Advisor · отчёт по полю</small><h1>${escape(field.name)}</h1><p>${escape(company)} · ${escape(field.crop)} · ${escape(field.areaHa)} га</p><p class="source">Сформирован: ${escape(date(generatedAt.toISOString()))}</p></header>
-    <section><h2>Поле и контур</h2><p>Дата сева: ${escape(field.sowingDate || 'Не указана')}. Посеяно: ${escape(field.plantedAreaHa)} га.</p>${fieldMap(field)}<p class="source">Источник: контур и параметры, введённые агрономом. Обновлено: ${escape(date(field.updatedAt))}.</p></section>
+    <section><h2>Поле и контур</h2><p>Дата сева: ${escape(field.sowingDate || 'Не указана')}. Посеяно: ${escape(field.plantedAreaHa)} га.</p>${fieldMap(field, map)}<p class="source">Источник: контур и параметры, введённые агрономом. Обновлено: ${escape(date(field.updatedAt))}.</p></section>
     <section><h2>Урожай и индексы</h2><p>Собрано: ${escape(field.harvestTotalT)} т. Фактическая урожайность: ${escape(measure(actualYield, 'т/га'))}.</p><p>Калиброванный прогноз урожая, доверительный интервал и оценка климатических рисков: нет данных — соответствующие модели не подключены.</p><div style="overflow-x:auto"><table><thead><tr><th>Индекс</th><th>Последнее среднее по полю</th><th>Дата интервала</th><th>Источник</th><th>Происхождение</th><th>Качество</th></tr></thead><tbody>${indexRows}</tbody></table></div>${indexChart}<p class="source">CDSE: статистика Sentinel-2 L2A по контуру поля с маской SCL; дата обозначает дневной интервал расчёта, а не время конкретного снимка. CSV: данные загружены пользователем, происхождение не проверено. Выбранный растровый слой и его доступность приведены в разделе карты индекса. Источник сбора: ввод агронома от ${escape(date(field.updatedAt))}. Фактическая урожайность = собранный урожай / посевная площадь.</p></section>
     <section><h2>Карта индекса · ${escape(map?.layer || 'не выбран')}</h2>${mapHtml}</section>
     <section><h2>Рекомендации по данным поля</h2><p class="source">Детерминированные правила report-rules-v1, сформировано ${escape(date(generatedAt.toISOString()))}. Требуют проверки агрономом; модель климатических рисков не применяется.</p>${recommendationHtml}</section>
@@ -132,3 +133,4 @@ export function buildFieldReportHtml(company: string, field: ReportField, weathe
     <p class="source">Отчёт отражает данные на момент формирования. Прогноз погоды не является измерением на поле; отсутствующие индексы и прогноз урожая не подменяются демонстрационными значениями.</p>
   </body></html>`
 }
+

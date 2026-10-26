@@ -2,6 +2,7 @@
 import YandexFieldMap from './FieldMap'
 import SyncStatus from './SyncStatus'
 import { rasterDataUrl } from './reportRaster'
+import { reportBasemap } from './reportBasemap'
 import type { ReportMap } from './report'
 import type { IndexRaster } from './IndexMapPanel'
 import { IndexMapPanel, useIndexMap } from './IndexMapPanel'
@@ -992,6 +993,7 @@ function ReportPanel({ company, field, weather, tasks, tasksError, onClose, init
         authenticatedRequest<ForecastResult>(`/api/fields/${encodeURIComponent(field.id)}/yield-forecast`),
       ]) : [[], [] as SeasonRecord[], null]
       const reportMap: ReportMap = { layer: reportLayer.toUpperCase() }
+      if (field.boundary?.length || field.coordinates) reportMap.basemapImage = await reportBasemap(field)
       if (field.id && field.boundary?.length) {
         try {
           const raster = await authenticatedRequest<IndexRaster>(`/api/fields/${encodeURIComponent(field.id)}/map?layer=${reportLayer}`)
